@@ -17,24 +17,31 @@ def read_sentences(infile):
     """
     Read sentences from an open file
     """
+    # Use local variable assignment for methods to speed up attribute lookup
     sents = []
     cache = []
+    cache_append = cache.append
+    sents_append = sents.append
+    decode = bytes.decode
+    cache_clear = cache.clear
+    # Avoid repeatedly using .split(), .rstrip(), etc. by local reference
+
     for line in infile:
-        if isinstance(line, bytes):
-            line = line.decode()
+        # Fast path: try to avoid checking isinstance on each line
+        if type(line) is bytes:
+            line = decode(line)
         line = line.rstrip()
-        if len(line) == 0:
-            if len(cache) > 0:
-                sents.append(cache)
+        if not line:
+            if cache:
+                sents_append(cache)
                 cache = []
+                cache_append = cache.append
             continue
         array = line.split()
         assert len(array) == 2
-        w, t = array
-        cache.append([w, t])
-    if len(cache) > 0:
-        sents.append(cache)
-        cache = []
+        cache_append(array)
+    if cache:
+        sents_append(cache)
     return sents
 
 
