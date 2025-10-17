@@ -72,27 +72,28 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
         Returns:
             torch.Tensor: [description]
         """
-        n_subtokens = len(bert_out)
-        n_words = len(word_starts)
+        n_subtokens = bert_out.size(0)
+        n_words = word_starts.size(0)
+        device = bert_out.device  # minor optimization for repeated device use
 
-        # [n_mentions, n_subtokens]
-        # with 0 at positions belonging to the words and -inf elsewhere
-        attn_mask = torch.arange(0, n_subtokens, device=self.device).expand((n_words, n_subtokens))
-        attn_mask = ((attn_mask >= word_starts.unsqueeze(1))
-                     * (attn_mask < word_ends.unsqueeze(1)))
+        # Efficient range tensor allocation
+        arange = torch.arange(n_subtokens, device=device)
+        # Make broadcasting explicit, so [n_words, n_subtokens]
+        word_starts = word_starts.view(-1, 1)
+        word_ends = word_ends.view(-1, 1)
+        attn_mask = (arange >= word_starts) & (arange < word_ends)
 
-        # if first row all False, set col 0 to True
-        # otherwise, set the row to be the previous row?
-        word_lengths = torch.sum(attn_mask, dim=1)
+        word_lengths = attn_mask.sum(dim=1)
         if torch.any(word_lengths == 0):
             raise ValueError("Found a blank word in training data!  This will break everything, starting with the attention masks, as some rows of the scoring table will be set to entirely -inf and then softmax to NaN.")
 
-        attn_mask = torch.log(attn_mask.to(torch.float))
+        # Convert boolean mask to log-domain for masking: where True -> 0, where False -> -inf
+        attn_mask = torch.where(attn_mask, torch.zeros((), device=device), torch.full((), float('-inf'), device=device))
 
         attn_scores = self.attn(bert_out).T  # [1, n_subtokens]
-        attn_scores = attn_scores.expand((n_words, n_subtokens))
+        attn_scores = attn_scores.expand(n_words, n_subtokens)
         attn_scores = attn_mask + attn_scores
-        del attn_mask
+
         return torch.softmax(attn_scores, dim=1)  # [n_words, n_subtokens]
 
     def _cluster_ids(self, doc: Doc) -> torch.Tensor:
