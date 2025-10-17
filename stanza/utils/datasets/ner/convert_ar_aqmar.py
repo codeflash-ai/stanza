@@ -40,33 +40,42 @@ def read_sentences(infile):
 
 def normalize_tags(sents):
     new_sents = []
-    # normalize tags
+    # Small helpers for prefix checking to avoid repeated str.startswith calls
+    MIS = 'MIS'
+    ENGLISH = 'ENGLISH'
+    SPANISH = 'SPANISH'
+    I_ = 'I-'
+    B_ = 'B-'
+    O = 'O'
+    I_MISC = 'I-MISC'
+    B_MISC = 'B-MISC'
+
+    # The main optimization is to avoid str.startswith on each branch, and directly slice instead.
+    # Since every tag is checked for a prefix, we can use str slices (which are fast -- they do not copy string data in CPython).
     for sent in sents:
         new_sentence = []
-        for i, pair in enumerate(sent):
-            w, t = pair
-            if t.startswith('O'):
-                new_t = 'O'
-            elif t.startswith('I-'):
-                type = t[2:]
-                if type.startswith('MIS'):
-                    new_t = 'I-MISC'
-                elif type.startswith('-'): # handle I--ORG
-                    new_t = 'I-' + type[1:]
+        for w, t in sent:
+            if t and t[0] == 'O':
+                new_t = O
+            elif t[:2] == I_:
+                typ = t[2:]
+                if typ[:3] == MIS:
+                    new_t = I_MISC
+                elif typ and typ[0] == '-':  # handle I--ORG
+                    new_t = I_ + typ[1:]
                 else:
                     new_t = t
-            elif t.startswith('B-'):
-                type = t[2:]
-                if type.startswith('MIS'):
-                    new_t = 'B-MISC'
-                elif type.startswith('ENGLISH') or type.startswith('SPANISH'):
-                    new_t = 'O'
+            elif t[:2] == B_:
+                typ = t[2:]
+                if typ[:3] == MIS:
+                    new_t = B_MISC
+                elif typ[:7] == ENGLISH or typ[:7] == SPANISH:
+                    new_t = O
                 else:
                     new_t = t
             else:
-                new_t = 'O'
-            # modify original tag
-            new_sentence.append((sent[i][0], new_t))
+                new_t = O
+            new_sentence.append((w, new_t))
         new_sents.append(new_sentence)
     return new_sents
 
