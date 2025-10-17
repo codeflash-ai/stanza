@@ -109,6 +109,8 @@ import sys
 import unicodedata
 import unittest
 
+_py3 = sys.version_info[0] >= 3
+
 # CoNLL-U column names
 ID, FORM, LEMMA, UPOS, XPOS, FEATS, HEAD, DEPREL, DEPS, MISC = range(10)
 
@@ -136,7 +138,9 @@ class UDError(Exception):
 
 # Conversion methods handling `str` <-> `unicode` conversions in Python2
 def _decode(text):
-    return text if sys.version_info[0] >= 3 or not isinstance(text, str) else text.decode("utf-8")
+    if _py3 or not isinstance(text, str):
+        return text
+    return text.decode("utf-8")
 
 def _encode(text):
     return text if sys.version_info[0] >= 3 or not isinstance(text, unicode) else text.encode("utf-8")
