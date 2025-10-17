@@ -87,12 +87,9 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
         if torch.any(word_lengths == 0):
             raise ValueError("Found a blank word in training data!  This will break everything, starting with the attention masks, as some rows of the scoring table will be set to entirely -inf and then softmax to NaN.")
 
-        attn_mask = torch.log(attn_mask.to(torch.float))
-
         attn_scores = self.attn(bert_out).T  # [1, n_subtokens]
         attn_scores = attn_scores.expand((n_words, n_subtokens))
-        attn_scores = attn_mask + attn_scores
-        del attn_mask
+        attn_scores = torch.where(attn_mask, attn_scores, torch.tensor(float('-inf'), device=attn_scores.device))
         return torch.softmax(attn_scores, dim=1)  # [n_words, n_subtokens]
 
     def _cluster_ids(self, doc: Doc) -> torch.Tensor:
