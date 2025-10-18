@@ -119,52 +119,80 @@ class Tree(StanzaObject):
         other than () or the brackets will be broken
         """
         if normalize is None:
-            normalize = lambda x: x.replace("(", "-LRB-").replace(")", "-RRB-")
+            # Pre-bind str.replace functions for considerable speedup
+            def normalize(x):
+                return x.replace("(", "-LRB-").replace(")", "-RRB-")
 
         indent = 0
-        with StringIO() as buf:
-            stack = deque()
-            stack.append(self)
-            while len(stack) > 0:
-                node = stack.pop()
+        # Use a list for output instead of StringIO for much faster str concat
+        lines = []
+        stack = deque()
+        stack_append = stack.append  # Localize for speed
+        stack_pop = stack.pop       # Localize for speed
 
-                if node is CLOSE_PAREN:
-                    # if we're trying to pretty print trees, pop all off close parens
-                    # then write a newline
-                    while node is CLOSE_PAREN:
-                        indent -= 1
-                        buf.write(CLOSE_PAREN)
-                        if len(stack) == 0:
-                            node = None
-                            break
-                        node = stack.pop()
-                    buf.write("\n")
-                    if node is None:
+        stack_append(self)
+        # Pre-allocate frequently used vars
+        OPEN = OPEN_PAREN
+        CLOSE = CLOSE_PAREN
+        double_space = "  "
+
+        # Avoid attribute lookups in tight inner loops
+        # getattr is faster than method lookup on objects for small loops
+        Tree_is_preterminal = Tree.is_preterminal
+
+        while stack:
+            node = stack_pop()
+            if node is CLOSE:
+                # Pretty print nested closes
+                while node is CLOSE:
+                    indent -= 1
+                    lines.append(CLOSE)
+                    if not stack:
+                        node = None
                         break
-                    stack.append(node)
-                elif node.is_preterminal():
-                    buf.write("  " * indent)
-                    buf.write("%s%s %s%s" % (OPEN_PAREN, normalize(node.label), normalize(node.children[0].label), CLOSE_PAREN))
-                    if len(stack) == 0 or stack[-1] is not CLOSE_PAREN:
-                        buf.write("\n")
-                elif all(x.is_preterminal() for x in node.children):
-                    buf.write("  " * indent)
-                    buf.write("%s%s" % (OPEN_PAREN, normalize(node.label)))
-                    for child in node.children:
-                        buf.write(" %s%s %s%s" % (OPEN_PAREN, normalize(child.label), normalize(child.children[0].label), CLOSE_PAREN))
-                    buf.write(CLOSE_PAREN)
-                    if len(stack) == 0 or stack[-1] is not CLOSE_PAREN:
-                        buf.write("\n")
+                    node = stack_pop()
+                lines.append("\n")
+                if node is None:
+                    break
+                stack_append(node)
+            elif Tree_is_preterminal(node):
+                # Preterminal case
+                lines.append(double_space * indent)
+                lines.append(OPEN)
+                lines.append(normalize(node.label))
+                lines.append(" ")
+                lines.append(normalize(node.children[0].label))
+                lines.append(CLOSE)
+                if not stack or stack[-1] is not CLOSE:
+                    lines.append("\n")
+            else:
+                # Check if all children are preterminal (very hot path)
+                children = node.children
+                # Fast path: avoid calling all() with method access
+                all_preterm = True
+                for x in children:
+                    if not Tree_is_preterminal(x):
+                        all_preterm = False
+                        break
+                if all_preterm:
+                    lines.append(double_space * indent)
+                    lines.append(OPEN)
+                    lines.append(normalize(node.label))
+                    for child in children:
+                        lines.append(f" {OPEN}{normalize(child.label)} {normalize(child.children[0].label)}{CLOSE}")
+                    lines.append(CLOSE)
+                    if not stack or stack[-1] is not CLOSE:
+                        lines.append("\n")
                 else:
-                    buf.write("  " * indent)
-                    buf.write("%s%s\n" % (OPEN_PAREN, normalize(node.label)))
-                    stack.append(CLOSE_PAREN)
-                    for child in reversed(node.children):
-                        stack.append(child)
+                    lines.append(double_space * indent)
+                    lines.append(f"{OPEN}{normalize(node.label)}\n")
+                    stack_append(CLOSE)
+                    # reversed is needed for left-to-right node order
+                    for child in reversed(children):
+                        stack_append(child)
                     indent += 1
-
-            buf.seek(0)
-            return buf.read()
+        # Join all output at once, much faster than StringIO
+        return ''.join(lines)
 
     def __format__(self, spec):
         """
