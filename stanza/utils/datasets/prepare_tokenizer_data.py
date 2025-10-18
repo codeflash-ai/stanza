@@ -44,7 +44,7 @@ def find_next_word(index, text, word, output):
 
             output.write('\n\n')
             index += break_len - 1
-        elif re.match(r'^\s$', text[index]) and not re.match(r'^\s$', word[idx]):
+        elif text[index].isspace() and not word[idx].isspace():
             # whitespace found, and whitespace is not part of a word
             word_sofar += text[index]
         else:
