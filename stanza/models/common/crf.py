@@ -48,9 +48,17 @@ class CRFLoss(nn.Module):
         @return:
             unary_scores: batch_size
         """
+        # Precompute index_offsets outside the batch for more efficient broadcasting
+        # (Move device/long conversion to once-off for performance)
+        device = tag_indices.device
+        index_offsets = torch.arange(input_sl, device=device, dtype=tag_indices.dtype).mul_(input_nc)
+        # In-place add (avoids allocating new tensor)
+        flat_tag_indices = tag_indices.add(index_offsets)
         flat_inputs = inputs.view(input_bs, -1)
-        flat_tag_indices = tag_indices + torch.arange(input_sl, device=tag_indices.device).long().unsqueeze(0) * input_nc
-        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices).view(input_bs, -1)
+        # torch.gather expects a LongTensor, so we ensure flat_tag_indices is correct type
+        if flat_tag_indices.dtype != torch.long:
+            flat_tag_indices = flat_tag_indices.long()
+        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices)
         unary_scores.masked_fill_(masks, 0)
         return unary_scores.sum(dim=1)
     
