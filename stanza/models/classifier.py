@@ -389,20 +389,20 @@ def score_dataset(model, dataset, label_map=None,
 
         output = model(batch)
 
+        predicted = torch.argmax(output, dim=1)
+        predicted_labels = predicted.tolist()
+
         for i in range(len(expected_labels)):
-            predicted = torch.argmax(output[i])
-            predicted_label = predicted.item()
+            predicted_label = predicted_labels[i]
             if remap_labels:
                 if predicted_label in remap_labels:
                     predicted_label = remap_labels[predicted_label]
                 else:
                     found = False
                     if forgive_unmapped_labels:
-                        items = []
-                        for j in range(len(output[i])):
-                            items.append((output[i][j].item(), j))
-                        items.sort(key=lambda x: -x[0])
-                        for _, item in items:
+                        sorted_indices = torch.argsort(output[i], descending=True)
+                        for idx in sorted_indices:
+                            item = idx.item()
                             if item in remap_labels:
                                 predicted_label = remap_labels[item]
                                 found = True
