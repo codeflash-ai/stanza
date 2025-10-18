@@ -111,6 +111,10 @@ def convert_fc_shapes(arg):
     arg = arg.strip()
     if not arg:
         return ()
+    if arg.isdigit() or (arg[0] == '-' and arg[1:].isdigit()):
+        return (int(arg),)
+    if ',' in arg and not any(c in arg for c in '[]()'):
+        return tuple(int(x.strip()) for x in arg.split(','))
     arg = ast.literal_eval(arg)
     if isinstance(arg, int):
         return (arg,)
