@@ -462,10 +462,12 @@ class Tree(StanzaObject):
         The intent is to train a parser backwards to see if the
         forward and backwards parsers can augment each other
         """
-        if self.is_leaf():
+        if not self.children:  # Avoids is_leaf call/indirection
             return Tree(self.label)
 
-        new_children = [child.reverse() for child in reversed(self.children)]
+        # Preallocate list with generator for memory efficiency
+        reversed_children = self.children[::-1]
+        new_children = [child.reverse() for child in reversed_children]
         return Tree(self.label, new_children)
 
     def remap_constituent_labels(self, label_map):
