@@ -555,16 +555,30 @@ class Tree(StanzaObject):
               *E* shows up in a VLSP dataset
             they have been pruned to 0 children by the recursive call
         """
-        if self.is_leaf():
+        # Inline logic for faster short-circuiting and reduce attribute lookups
+        c = self.children
+
+        # Fast path for leaf nodes
+        if not c:
             return Tree(self.label)
-        if self.is_preterminal():
-            if self.label == '-NONE-' or self.children[0].label in WORDS_TO_PRUNE:
+
+        # Preterminal: only check if necessary
+        if len(c) == 1 and not c[0].children:
+            child_label = c[0].label
+            # Use a local var for fast "in" with tuple
+            if self.label == '-NONE-' or child_label in WORDS_TO_PRUNE:
                 return None
-            return Tree(self.label, Tree(self.children[0].label))
-        # must be internal node
-        new_children = [child.prune_none() for child in self.children]
-        new_children = [child for child in new_children if child is not None]
-        if len(new_children) == 0:
+            return Tree(self.label, Tree(child_label))
+
+        # Internal node: avoid building temp list unless actually needed
+        # Use list comprehension for maximum efficiency
+        # Also, avoid extra len call by reusing new_children
+        new_children = []
+        for child in c:
+            result = child.prune_none()
+            if result is not None:
+                new_children.append(result)
+        if not new_children:
             return None
         return Tree(self.label, new_children)
 
