@@ -100,13 +100,20 @@ class Tree(StanzaObject):
         """
         Returns True if all leaves are under preterminals, False otherwise
         """
-        if self.is_leaf():
+        # Cache children to local variable for efficient attribute lookup
+        children = self.children
+
+        if not children:
             return False
 
-        if self.is_preterminal():
+        if len(children) == 1 and not children[0].children:
             return True
 
-        return all(t.all_leaves_are_preterminals() for t in self.children)
+        # Use a for loop instead of all() + generator for less function call overhead in this very hot path
+        for t in children:
+            if not t.all_leaves_are_preterminals():
+                return False
+        return True
 
     def pretty_print(self, normalize=None):
         """
