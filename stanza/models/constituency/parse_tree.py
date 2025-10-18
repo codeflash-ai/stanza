@@ -124,44 +124,64 @@ class Tree(StanzaObject):
         indent = 0
         with StringIO() as buf:
             stack = deque()
-            stack.append(self)
-            while len(stack) > 0:
-                node = stack.pop()
+            stack_append = stack.append
+            stack_pop = stack.pop
+            buf_write = buf.write
+
+            stack_append(self)
+            while stack:
+                node = stack_pop()
 
                 if node is CLOSE_PAREN:
                     # if we're trying to pretty print trees, pop all off close parens
                     # then write a newline
                     while node is CLOSE_PAREN:
                         indent -= 1
-                        buf.write(CLOSE_PAREN)
-                        if len(stack) == 0:
+                        buf_write(CLOSE_PAREN)
+                        if not stack:
                             node = None
                             break
-                        node = stack.pop()
-                    buf.write("\n")
+                        node = stack_pop()
+                    buf_write("\n")
                     if node is None:
                         break
-                    stack.append(node)
-                elif node.is_preterminal():
-                    buf.write("  " * indent)
-                    buf.write("%s%s %s%s" % (OPEN_PAREN, normalize(node.label), normalize(node.children[0].label), CLOSE_PAREN))
-                    if len(stack) == 0 or stack[-1] is not CLOSE_PAREN:
-                        buf.write("\n")
-                elif all(x.is_preterminal() for x in node.children):
-                    buf.write("  " * indent)
-                    buf.write("%s%s" % (OPEN_PAREN, normalize(node.label)))
-                    for child in node.children:
-                        buf.write(" %s%s %s%s" % (OPEN_PAREN, normalize(child.label), normalize(child.children[0].label), CLOSE_PAREN))
-                    buf.write(CLOSE_PAREN)
-                    if len(stack) == 0 or stack[-1] is not CLOSE_PAREN:
-                        buf.write("\n")
+                    stack_append(node)
                 else:
-                    buf.write("  " * indent)
-                    buf.write("%s%s\n" % (OPEN_PAREN, normalize(node.label)))
-                    stack.append(CLOSE_PAREN)
-                    for child in reversed(node.children):
-                        stack.append(child)
-                    indent += 1
+                    # Avoid method lookups in inner loop (is_preterminal)
+                    is_preterminal = getattr(node, "is_preterminal", None)
+                    if is_preterminal is not None and is_preterminal():
+                        buf_write("  " * indent)
+                        buf_write("%s%s %s%s" % (
+                            OPEN_PAREN,
+                            normalize(node.label),
+                            normalize(node.children[0].label),
+                            CLOSE_PAREN
+                        ))
+                        if not stack or stack[-1] is not CLOSE_PAREN:
+                            buf_write("\n")
+                    else:
+                        children = getattr(node, "children", None)
+                        # Fast detection of all-preterminal children using map and avoid attribute lookup in the loop
+                        if children and all(getattr(child, "is_preterminal", lambda: False)() for child in children):
+                            buf_write("  " * indent)
+                            buf_write("%s%s" % (OPEN_PAREN, normalize(node.label)))
+                            for child in children:
+                                buf_write(" %s%s %s%s" % (
+                                    OPEN_PAREN,
+                                    normalize(child.label),
+                                    normalize(child.children[0].label),
+                                    CLOSE_PAREN)
+                                )
+                            buf_write(CLOSE_PAREN)
+                            if not stack or stack[-1] is not CLOSE_PAREN:
+                                buf_write("\n")
+                        else:
+                            buf_write("  " * indent)
+                            buf_write("%s%s\n" % (OPEN_PAREN, normalize(node.label)))
+                            stack_append(CLOSE_PAREN)
+                            for child in reversed(children):
+                                stack_append(child)
+                            indent += 1
 
             buf.seek(0)
             return buf.read()
@@ -185,6 +205,7 @@ class Tree(StanzaObject):
         """
         space_replacement = " "
         print_format = TreePrintMethod.ONE_LINE
+        use_tree_id = False
         if spec == 'L':
             print_format = TreePrintMethod.LABELED_PARENS
             space_replacement = "_"
@@ -227,62 +248,72 @@ class Tree(StanzaObject):
 
         with StringIO() as buf:
             stack = deque()
+            stack_append = stack.append
+            stack_pop = stack.pop
+            buf_write = buf.write
+
             if print_format == TreePrintMethod.VLSP:
                 if use_tree_id:
-                    buf.write("<s id={}>\n".format(self.tree_id))
+                    buf_write("<s id={}>\n".format(self.tree_id))
                 else:
-                    buf.write("<s>\n")
+                    buf_write("<s>\n")
                 if len(self.children) == 0:
                     raise ValueError("Cannot print an empty tree with V format")
                 elif len(self.children) > 1:
                     raise ValueError("Cannot print a tree with %d branches with V format" % len(self.children))
-                stack.append(self.children[0])
+                stack_append(self.children[0])
             elif print_format == TreePrintMethod.LATEX_TREE:
-                buf.write("\\Tree ")
+                buf_write("\\Tree ")
                 if len(self.children) == 0:
                     raise ValueError("Cannot print an empty tree with T format")
                 elif len(self.children) == 1 and len(self.children[0].children) == 0:
-                    buf.write("[.? ")
-                    buf.write(normalize(self.children[0].label))
-                    buf.write(" ]")
+                    buf_write("[.? ")
+                    buf_write(normalize(self.children[0].label))
+                    buf_write(" ]")
                 elif self.label == 'ROOT':
-                    stack.append(self.children[0])
+                    stack_append(self.children[0])
                 else:
-                    stack.append(self)
+                    stack_append(self)
             else:
-                stack.append(self)
-            while len(stack) > 0:
-                node = stack.pop()
+                stack_append(self)
+            while stack:
+                node = stack_pop()
 
                 if isinstance(node, str):
-                    buf.write(node)
+                    buf_write(node)
                     continue
-                if len(node.children) == 0:
-                    if node.label is not None:
-                        buf.write(normalize(node.label))
+                # Avoid attribute lookups in tight loop
+                children = node.children
+                label = node.label
+
+                if not children:
+                    if label is not None:
+                        buf_write(normalize(label))
                     continue
 
                 if print_format is TreePrintMethod.LATEX_TREE:
-                    if node.is_preterminal():
-                        buf.write(normalize(node.children[0].label))
+                    # Use method lookup caching for possible performance gain
+                    is_preterminal = getattr(node, "is_preterminal", None)
+                    if is_preterminal and is_preterminal():
+                        buf_write(normalize(children[0].label))
                         continue
-                    buf.write("[.%s" % normalize(node.label))
-                    stack.append(" ]")
+                    buf_write("[.%s" % normalize(label))
+                    stack_append(" ]")
                 elif print_format is TreePrintMethod.ONE_LINE or print_format is TreePrintMethod.VLSP:
-                    buf.write(OPEN_PAREN)
-                    if node.label is not None:
-                        buf.write(normalize(node.label))
-                    stack.append(CLOSE_PAREN)
+                    buf_write(OPEN_PAREN)
+                    if label is not None:
+                        buf_write(normalize(label))
+                    stack_append(CLOSE_PAREN)
                 elif print_format is TreePrintMethod.LABELED_PARENS:
-                    buf.write("%s_%s" % (OPEN_PAREN, normalize(node.label)))
-                    stack.append(CLOSE_PAREN + "_" + normalize(node.label))
-                    stack.append(SPACE_SEPARATOR)
+                    buf_write("%s_%s" % (OPEN_PAREN, normalize(label)))
+                    stack_append(CLOSE_PAREN + "_" + normalize(label))
+                    stack_append(SPACE_SEPARATOR)
 
-                for child in reversed(node.children):
-                    stack.append(child)
-                    stack.append(SPACE_SEPARATOR)
+                for child in reversed(children):
+                    stack_append(child)
+                    stack_append(SPACE_SEPARATOR)
             if print_format == TreePrintMethod.VLSP:
-                buf.write("\n</s>")
+                buf_write("\n</s>")
             buf.seek(0)
             return buf.read()
 
