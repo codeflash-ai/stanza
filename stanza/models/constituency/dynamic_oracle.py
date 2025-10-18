@@ -4,6 +4,10 @@ import numpy as np
 
 from stanza.models.constituency.parse_transitions import Shift, OpenConstituent, CloseConstituent
 
+OpenConstituentType = OpenConstituent
+
+CloseConstituentType = CloseConstituent
+
 RepairEnum = namedtuple("RepairEnum", "name value is_correct")
 
 def score_candidates_single_block(model, state, candidates, candidate_idx):
@@ -64,13 +68,20 @@ def advance_past_constituents(gold_sequence, cur_index):
     The index returned is the index of the Close which occurred after all the stuff
     """
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-            if count == -1: return cur_index
-        cur_index = cur_index + 1
+    seq = gold_sequence
+    seq_len = len(seq)
+    open_type = OpenConstituentType
+    close_type = CloseConstituentType
+    idx = cur_index
+    while idx < seq_len:
+        elem = seq[idx]
+        if type(elem) is open_type:
+            count += 1
+        elif type(elem) is close_type:
+            count -= 1
+            if count == -1:
+                return idx
+        idx += 1
     return None
 
 def find_previous_open(gold_sequence, cur_index):
@@ -80,15 +91,19 @@ def find_previous_open(gold_sequence, cur_index):
     Return None if it can't be found.
     """
     count = 0
-    cur_index = cur_index - 1
-    while cur_index >= 0:
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
+    seq = gold_sequence
+    open_type = OpenConstituentType
+    close_type = CloseConstituentType
+    idx = cur_index - 1
+    while idx >= 0:
+        elem = seq[idx]
+        if type(elem) is open_type:
+            count += 1
             if count > 0:
-                return cur_index
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-        cur_index = cur_index - 1
+                return idx
+        elif type(elem) is close_type:
+            count -= 1
+        idx -= 1
     return None
 
 def find_in_order_constituent_end(gold_sequence, cur_index):
