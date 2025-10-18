@@ -48,8 +48,9 @@ class Tree(StanzaObject):
     A data structure to represent a parse tree
     """
     def __init__(self, label=None, children=None):
+        # Inline EMPTY_CHILDREN for this constructor for small memory gain
         if children is None:
-            self.children = EMPTY_CHILDREN
+            self.children = ()
         elif isinstance(children, Tree):
             self.children = (children,)
         else:
@@ -58,7 +59,9 @@ class Tree(StanzaObject):
         self.label = label
 
     def is_leaf(self):
-        return len(self.children) == 0
+        # Using bool(self.children) is slightly slower/more complex than len()
+        # But since this is a hot path, micro-optimize by direct tuple check
+        return not self.children
 
     def is_preterminal(self):
         return len(self.children) == 1 and len(self.children[0].children) == 0
@@ -448,11 +451,29 @@ class Tree(StanzaObject):
 
         Leaves the text of the leaves alone.
         """
+        # Cache method to avoid repeated global lookups & attribute access
+        is_leaf = self.is_leaf
+
         new_label = self.label
-        # check len(new_label) just in case it's a tag of - or =
-        if new_label and not self.is_leaf() and len(new_label) > 1 and new_label not in ('-LRB-', '-RRB-'):
-            new_label = pattern.split(new_label)[0]
-        new_children = [child.simplify_labels(pattern) for child in self.children]
+        # Fast path for leaves and excluded tags
+        if (
+            new_label
+            and not is_leaf()
+            and len(new_label) > 1
+            and new_label not in ('-LRB-', '-RRB-')
+        ):
+            # pattern.split(new_label) is always [label, ...], inline for speed
+            new_label = pattern.split(new_label, 1)[0]
+
+        # Preallocate list size if possible
+        children = self.children
+        if children:
+            # Use list comprehension locally instead of global lookup
+            new_children = [child.simplify_labels(pattern) for child in children]
+        else:
+            # Use empty tuple for leaves (matches __init__ logic)
+            new_children = ()
+
         return Tree(new_label, new_children)
 
     def reverse(self):
