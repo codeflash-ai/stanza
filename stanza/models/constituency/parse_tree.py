@@ -393,8 +393,20 @@ class Tree(StanzaObject):
             trees = [trees]
 
         words = Counter()
+        
+        # Inline the visit_preorder's leaf-visitor logic here for best performance
+        stack = []
         for tree in trees:
-            tree.visit_preorder(leaf = lambda x: words.update([x.label]))
+            stack.clear()
+            stack.append(tree)
+            while stack:
+                node = stack.pop()
+                if node.is_leaf():
+                    words[node.label] += 1
+                else:
+                    # children is always a tuple
+                    stack.extend(reversed(node.children))
+        
         return sorted(x[0] for x in words.most_common()[:num_words])
 
     @staticmethod
