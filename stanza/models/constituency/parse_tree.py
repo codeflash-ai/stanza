@@ -569,19 +569,46 @@ class Tree(StanzaObject):
         return Tree(self.label, new_children)
 
     def count_unary_depth(self):
-        if self.is_preterminal() or self.is_leaf():
+        # Fast local aliases in tight loops
+        children = self.children
+        # Preterminal or leaf: 0
+        if not children or (len(children) == 1 and not children[0].children):
             return 0
-        if len(self.children) == 1:
+        # Only one child: follow unary-chain
+        if len(children) == 1:
             t = self
             score = 0
-            while not t.is_preterminal() and not t.is_leaf() and len(t.children) == 1:
-                score = score + 1
-                t = t.children[0]
-            child_score = max(tc.count_unary_depth() for tc in t.children)
-            score = max(score, child_score)
-            return score
-        score = max(t.count_unary_depth() for t in self.children)
-        return score
+            # Do NOT use recursive call for this chain for stack & perf
+            # Fast test: only follow while unary and not preterm/leaf
+            while True:
+                children = t.children
+                # is_preterminal or is_leaf: stop
+                if not children or (len(children) == 1 and not children[0].children):
+                    break
+                if len(children) != 1:
+                    break
+                score += 1
+                t = children[0]
+            # Compute max unary depth in tail
+            tail_score = 0
+            # Avoid generator expression: more efficient to use for loop (since t.children is tuple, will be small)
+            for tc in t.children:
+                s = tc.count_unary_depth()
+                if s > tail_score:
+                    tail_score = s
+            # Combine
+            if score > tail_score:
+                return score
+            else:
+                return tail_score
+        # Multiple children: max unary depth among all children
+        # Use manual for loop for speed vs generator max
+        max_score = 0
+        for t in children:
+            s = t.count_unary_depth()
+            if s > max_score:
+                max_score = s
+        return max_score
 
     @staticmethod
     def write_treebank(trees, out_file, fmt="{}"):
