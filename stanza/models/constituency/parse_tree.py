@@ -526,21 +526,25 @@ class Tree(StanzaObject):
         else:
             tag_iterator = iter(tags)
 
-        new_tree = copy.deepcopy(self)
+        new_tree = copy.copy(self)
         queue = deque()
-        queue.append(new_tree)
+        queue.append((self, new_tree))
         while len(queue) > 0:
-            next_node = queue.pop()
-            if next_node.is_preterminal():
+            old_node, new_node = queue.pop()
+            if old_node.is_preterminal():
                 try:
                     label = next(tag_iterator)
                 except StopIteration:
                     raise ValueError("Not enough tags in sentence for given tree")
-                next_node.label = label
-            elif next_node.is_leaf():
+                new_node.label = label
+            elif old_node.is_leaf():
                 raise ValueError("Got a badly structured tree: {}".format(self))
             else:
-                queue.extend(reversed(next_node.children))
+                if new_node is old_node:
+                    new_node.children = tuple(copy.copy(child) if isinstance(child, Tree) else child for child in old_node.children)
+                for old_child, new_child in zip(reversed(old_node.children), reversed(new_node.children)):
+                    if isinstance(old_child, Tree):
+                        queue.append((old_child, new_child))
 
         if any(True for _ in tag_iterator):
             raise ValueError("Too many tags for the given tree")
