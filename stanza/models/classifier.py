@@ -326,21 +326,33 @@ def parse_args(args=None):
 
 def dataset_predictions(model, dataset):
     model.eval()
-    index_label_map = {x: y for (x, y) in enumerate(model.labels)}
-
+    labels = model.labels
+    # index_label_map replaced by direct labels indexing for efficiency
     dataset_lengths = data.sort_dataset_by_len(dataset, keep_index=True)
 
     predictions = []
     o_idx = []
-    for length in dataset_lengths.keys():
-        batch = dataset_lengths[length]
-        output = model([x[0] for x in batch])
-        for i in range(len(batch)):
-            predicted = torch.argmax(output[i])
-            predicted_label = index_label_map[predicted.item()]
-            predictions.append(predicted_label)
-            o_idx.append(batch[i][1])
 
+    for batch in dataset_lengths.values():
+        # Pre-allocate and collect inputs for this batch
+        inputs = [x[0] for x in batch]
+
+        # Vectorized prediction: model returns logits for the batch
+        output = model(inputs)
+
+        # Use torch.argmax across the batch output in one step for speed
+        # output shape: (batch_size, num_classes) -> argmax returns shape: (batch_size,)
+        predicted_indices = torch.argmax(output, dim=1)
+
+        # Convert predicted indices to labels in a single loop, store results directly
+        # Avoid repeated .item() calls by converting tensor to list once
+        indices = predicted_indices.tolist()
+        batch_indices = [entry[1] for entry in batch]
+        for idx, orig_idx in zip(indices, batch_indices):
+            predictions.append(labels[idx])
+            o_idx.append(orig_idx)
+
+    # Unsort predictions using o_idx
     predictions = utils.unsort(predictions, o_idx)
     return predictions
 
