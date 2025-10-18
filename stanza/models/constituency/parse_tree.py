@@ -6,7 +6,6 @@ from collections import deque, Counter
 import copy
 from enum import Enum
 from io import StringIO
-import itertools
 import re
 import warnings
 
@@ -67,21 +66,23 @@ class Tree(StanzaObject):
         """
         Yield the preterminals one at a time in order
         """
+        # Fast non-recursive DFS using an explicit stack
         if self.is_preterminal():
             yield self
             return
 
         if self.is_leaf():
             raise ValueError("Attempted to iterate preterminals on non-internal node")
-
-        iterator = iter(self.children)
-        node = next(iterator, None)
-        while node is not None:
-            if node.is_preterminal():
+        
+        stack = [self]
+        while stack:
+            node = stack.pop()
+            children = getattr(node, "children", EMPTY_CHILDREN)
+            if len(children) == 1 and len(children[0].children) == 0:
                 yield node
-            else:
-                iterator = itertools.chain(node.children, iterator)
-            node = next(iterator, None)
+            elif children:
+                # add children in reverse order so they are yielded left to right
+                stack.extend(reversed(children))
 
     def leaf_labels(self):
         """
@@ -90,8 +91,8 @@ class Tree(StanzaObject):
         if self.is_leaf():
             return [self.label]
 
-        words = [x.children[0].label for x in self.yield_preterminals()]
-        return words
+        # List comprehension with generator for improved locality/cache
+        return [x.children[0].label for x in self.yield_preterminals()]
 
     def __len__(self):
         return len(self.leaf_labels())
