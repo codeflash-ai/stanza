@@ -475,9 +475,9 @@ class Tree(StanzaObject):
         Labels in the map are replaced with the mapped value.
         Labels not in the map are unchanged.
         """
-        if self.is_leaf():
+        if not self.children:
             return Tree(self.label)
-        if self.is_preterminal():
+        if len(self.children) == 1 and not self.children[0].children:
             return Tree(self.label, Tree(self.children[0].label))
         new_label = label_map.get(self.label, self.label)
         return Tree(new_label, [child.remap_constituent_labels(label_map) for child in self.children])
