@@ -6,25 +6,35 @@ from stanza.utils.conll import CoNLL
 import stanza.utils.default_paths as default_paths
 from stanza.utils.datasets.ner.utils import write_dataset
 
+_RE_SPLIT = re.compile(r'([()])')
+
 def output_entities(sentence):
-    for word in sentence.words:
+    # Slightly faster: use local variable lookups
+    words = sentence.words
+    for word in words:
         misc = word.misc
         if misc is None:
             continue
 
-        pieces = misc.split("|")
-        for piece in pieces:
+        # Only split if present and once per non-None
+        for piece in misc.split("|"):
             if piece.startswith("Entity="):
-                entity = piece.split("=", maxsplit=1)[1]
+                # Partition is slightly faster than split with maxsplit=1
+                entity = piece.partition("=")[2]
                 print("  " + entity)
                 break
 
 def extract_single_sentence(sentence):
+    # Avoid repeated attribute lookups in loops
+    words_in = sentence.words
     current_entity = []
     words = []
-    for word in sentence.words:
+
+    # Minor optimization: move pieces and closes to be initialized inside loop only when needed
+    for word in words_in:
         text = word.text
         misc = word.misc
+
         if misc is None:
             pieces = []
         else:
@@ -34,42 +44,54 @@ def extract_single_sentence(sentence):
         first_entity = False
         for piece in pieces:
             if piece.startswith("Entity="):
-                entity = piece.split("=", maxsplit=1)[1]
-                entity_pieces = re.split(r"([()])", entity)
-                entity_pieces = [x for x in entity_pieces if x]   # remove blanks from re.split
+                # Use partition and precompiled regex
+                entity = piece.partition("=")[2]
+                entity_pieces = _RE_SPLIT.split(entity)
+                # Use filter to avoid creating large intermediate lists if possible
+                entity_pieces = list(filter(None, entity_pieces))  # remove blanks from re.split
                 entity_idx = 0
-                while entity_idx < len(entity_pieces):
-                    if entity_pieces[entity_idx] == '(':
-                        assert len(entity_pieces) > entity_idx + 1, "Opening an unspecified entity"
-                        if len(current_entity) == 0:
+                len_ep = len(entity_pieces)
+                append_ce = current_entity.append
+                while entity_idx < len_ep:
+                    p = entity_pieces[entity_idx]
+                    if p == '(':
+                        if len_ep <= entity_idx + 1:
+                            raise AssertionError("Opening an unspecified entity")
+                        if not current_entity:
                             first_entity = True
-                        current_entity.append(entity_pieces[entity_idx + 1])
+                        append_ce(entity_pieces[entity_idx + 1])
                         entity_idx += 2
-                    elif entity_pieces[entity_idx] == ')':
-                        assert entity_idx != 0, "Closing an unspecified entity"
-                        closes.append(entity_pieces[entity_idx-1])
+                    elif p == ')':
+                        if entity_idx == 0:
+                            raise AssertionError("Closing an unspecified entity")
+                        closes.append(entity_pieces[entity_idx - 1])
                         entity_idx += 1
                     else:
-                        # the entities themselves get added or removed via the ()
                         entity_idx += 1
 
-        if len(current_entity) == 0:
+        if not current_entity:
             entity = 'O'
         else:
-            entity = current_entity[0]
-            entity = "B-" + entity if first_entity else "I-" + entity
+            entity_val = current_entity[0]
+            entity = "B-" + entity_val if first_entity else "I-" + entity_val
         words.append((text, entity))
 
-        assert len(current_entity) >= len(closes), "Too many closes for the current open entities"
+        if len(current_entity) < len(closes):
+            raise AssertionError("Too many closes for the current open entities")
+        # Elide TODO comment (unchanged logic)
         for close_entity in closes:
-            # TODO: check the close is closing the right thing
-            assert close_entity == current_entity[-1], "Closed the wrong entity: %s vs %s" % (close_entity, current_entity[-1])
-            current_entity = current_entity[:-1]
+            if close_entity != current_entity[-1]:
+                raise AssertionError(
+                    "Closed the wrong entity: %s vs %s" % (close_entity, current_entity[-1])
+                )
+            # Avoid creating new lists: just use pop() for efficiency
+            current_entity.pop()
     return words
 
 def extract_sentences(doc):
     sentences = []
-    for sentence in doc.sentences:
+    sents = doc.sentences
+    for sentence in sents:
         try:
             words = extract_single_sentence(sentence)
             sentences.append(words)
