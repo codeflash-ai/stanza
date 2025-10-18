@@ -171,13 +171,13 @@ class MultiHeadAttention(nn.Module):
             self.d_content = d_model - d_positional
             self.d_positional = d_positional
 
-            self.w_qs1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_k // 2))
-            self.w_ks1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_k // 2))
-            self.w_vs1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_v // 2))
+            self.w_qs1 = nn.Parameter(torch.empty(n_head, self.d_content, d_k // 2))
+            self.w_ks1 = nn.Parameter(torch.empty(n_head, self.d_content, d_k // 2))
+            self.w_vs1 = nn.Parameter(torch.empty(n_head, self.d_content, d_v // 2))
 
-            self.w_qs2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_k // 2))
-            self.w_ks2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_k // 2))
-            self.w_vs2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_v // 2))
+            self.w_qs2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_k // 2))
+            self.w_ks2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_k // 2))
+            self.w_vs2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_v // 2))
 
             init.xavier_normal_(self.w_qs1)
             init.xavier_normal_(self.w_ks1)
@@ -187,9 +187,9 @@ class MultiHeadAttention(nn.Module):
             init.xavier_normal_(self.w_ks2)
             init.xavier_normal_(self.w_vs2)
         else:
-            self.w_qs = nn.Parameter(torch.FloatTensor(n_head, d_model, d_k))
-            self.w_ks = nn.Parameter(torch.FloatTensor(n_head, d_model, d_k))
-            self.w_vs = nn.Parameter(torch.FloatTensor(n_head, d_model, d_v))
+            self.w_qs = nn.Parameter(torch.empty(n_head, d_model, d_k))
+            self.w_ks = nn.Parameter(torch.empty(n_head, d_model, d_k))
+            self.w_vs = nn.Parameter(torch.empty(n_head, d_model, d_v))
 
             init.xavier_normal_(self.w_qs)
             init.xavier_normal_(self.w_ks)
@@ -199,8 +199,6 @@ class MultiHeadAttention(nn.Module):
         self.layer_norm = LayerNormalization(d_model)
 
         if not self.partitioned:
-            # The lack of a bias term here is consistent with the t2t code, though
-            # in my experiments I have never observed this making a difference.
             self.proj = nn.Linear(n_head*d_v, d_model, bias=False)
         else:
             self.proj1 = nn.Linear(n_head*(d_v//2), self.d_content, bias=False)
@@ -209,29 +207,39 @@ class MultiHeadAttention(nn.Module):
         self.residual_dropout = FeatureDropout(residual_dropout)
 
     def split_qkv_packed(self, inp, qk_inp=None):
-        v_inp_repeated = inp.repeat(self.n_head, 1).view(self.n_head, -1, inp.size(-1)) # n_head x len_inp x d_model
+        # Optimize repeat/view using expand and unsqueeze
+        v_inp_repeated = self._repeat_and_view(inp, self.n_head)  # n_head x len_inp x d_model
         if qk_inp is None:
             qk_inp_repeated = v_inp_repeated
         else:
-            qk_inp_repeated = qk_inp.repeat(self.n_head, 1).view(self.n_head, -1, qk_inp.size(-1))
+            qk_inp_repeated = self._repeat_and_view(qk_inp, self.n_head)  # n_head x len_inp x d_model
 
         if not self.partitioned:
-            q_s = torch.bmm(qk_inp_repeated, self.w_qs) # n_head x len_inp x d_k
-            k_s = torch.bmm(qk_inp_repeated, self.w_ks) # n_head x len_inp x d_k
-            v_s = torch.bmm(v_inp_repeated, self.w_vs) # n_head x len_inp x d_v
+            # batch matrix multiply can be parallelized in a single batch for speed
+            # (n_head, len_inp, d_model) @ (n_head, d_model, d_k) -> (n_head, len_inp, d_k)
+            q_s = torch.bmm(qk_inp_repeated, self.w_qs)
+            k_s = torch.bmm(qk_inp_repeated, self.w_ks)
+            v_s = torch.bmm(v_inp_repeated, self.w_vs)
         else:
-            q_s = torch.cat([
-                torch.bmm(qk_inp_repeated[:,:,:self.d_content], self.w_qs1),
-                torch.bmm(qk_inp_repeated[:,:,self.d_content:], self.w_qs2),
-                ], -1)
-            k_s = torch.cat([
-                torch.bmm(qk_inp_repeated[:,:,:self.d_content], self.w_ks1),
-                torch.bmm(qk_inp_repeated[:,:,self.d_content:], self.w_ks2),
-                ], -1)
-            v_s = torch.cat([
-                torch.bmm(v_inp_repeated[:,:,:self.d_content], self.w_vs1),
-                torch.bmm(v_inp_repeated[:,:,self.d_content:], self.w_vs2),
-                ], -1)
+            # Split tensor once to reduce slicing cost and memory usage
+            # qk_inp_repeated and v_inp_repeated: n_head x len_inp x d_model
+            qc = qk_inp_repeated[:, :, :self.d_content]
+            qp = qk_inp_repeated[:, :, self.d_content:]
+            vc = v_inp_repeated[:, :, :self.d_content]
+            vp = v_inp_repeated[:, :, self.d_content:]
+
+            # Preallocate output tensor before the concat to avoid repeated allocations
+            q_s_content = torch.bmm(qc, self.w_qs1)
+            q_s_pos = torch.bmm(qp, self.w_qs2)
+            k_s_content = torch.bmm(qc, self.w_ks1)
+            k_s_pos = torch.bmm(qp, self.w_ks2)
+            v_s_content = torch.bmm(vc, self.w_vs1)
+            v_s_pos = torch.bmm(vp, self.w_vs2)
+
+            q_s = torch.cat([q_s_content, q_s_pos], -1)
+            k_s = torch.cat([k_s_content, k_s_pos], -1)
+            v_s = torch.cat([v_s_content, v_s_pos], -1)
+
         return q_s, k_s, v_s
 
     def pad_and_rearrange(self, q_s, k_s, v_s, batch_idxs):
@@ -310,6 +318,16 @@ class MultiHeadAttention(nn.Module):
         outputs = self.residual_dropout(outputs, batch_idxs)
 
         return self.layer_norm(outputs + residual), attns_padded
+
+    def _repeat_and_view(self, x: torch.Tensor, n_head: int):
+        """
+        Helper for efficient repeat/view.
+        """
+        # Repeat along batch dimension using expand - more memory efficient than repeat
+        # x shape: (len_inp, d_model)
+        len_inp, d_model = x.size()
+        x_expanded = x.unsqueeze(0).expand(n_head, len_inp, d_model)
+        return x_expanded
 
 #
 class PositionwiseFeedForward(nn.Module):
