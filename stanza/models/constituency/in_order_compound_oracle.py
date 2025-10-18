@@ -82,9 +82,9 @@ def fix_open_open_error(gold_transition, pred_transition, gold_sequence, gold_in
     if gold_transition == pred_transition:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
 
     block_end = find_in_order_constituent_end(gold_sequence, gold_index+1)
