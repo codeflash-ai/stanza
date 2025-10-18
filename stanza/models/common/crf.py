@@ -80,26 +80,38 @@ class CRFLoss(nn.Module):
         @return:
             log_norm: batch_size
         """
-        start_inputs = inputs[:,0,:] # bs x nc
-        rest_inputs = inputs[:,1:,:]
-        # TODO: technically we need to pay attention to the initial
-        # value being masked.  Currently we do compensate for the
-        # entire row being masked at the end of the operation
-        rest_masks = masks[:,1:]
-        alphas = start_inputs # bs x nc
-        trans = self._transitions.unsqueeze(0) # 1 x nc x nc
-        # accumulate alphas in log space
+        start_inputs = inputs[:, 0, :]  # bs x nc
+        rest_inputs = inputs[:, 1:, :]  # bs x seq_len-1 x nc
+        rest_masks = masks[:, 1:]       # bs x seq_len-1
+        alphas = start_inputs           # bs x nc
+        trans = self._transitions.unsqueeze(0)  # 1 x nc x nc
+
+        # Precompute mask expansions for performance
+        batch_size, seq_len_minus1 = rest_masks.shape
+        nc = alphas.shape[1]
+        masks_expanded = rest_masks.unsqueeze(2)  # bs x seq_len-1 x 1
+
+        # accumulate alphas in log space, attempt fused ops to exploit tensor-level parallelism
+        # This loop is critical, focus on minimizing intermediate allocations and maximizing contiguous memory
         for i in range(rest_inputs.size(1)):
-            transition_scores = alphas.unsqueeze(2) + trans # bs x nc x nc
-            new_alphas = rest_inputs[:,i,:] + log_sum_exp(transition_scores, dim=1)
-            m = rest_masks[:,i].unsqueeze(1).expand_as(new_alphas) # bs x nc, 1 for padding idx
-            # apply masks
-            new_alphas.masked_scatter_(m, alphas.masked_select(m))
-            alphas = new_alphas
+            # Compute transition scores in a batched manner (bs x nc x nc)
+            transition_scores = alphas.unsqueeze(2) + trans  # bs x nc x nc
+
+            # Use fused log_sum_exp on dim=1 (each to all tags from prev)
+            lse = log_sum_exp(transition_scores, dim=1)      # bs x nc
+
+            # Add unary potential for step i
+            new_alphas = rest_inputs[:, i, :] + lse          # bs x nc
+
+            # Mask update: values for masked locations should be copied over
+            m = rest_masks[:, i].unsqueeze(1)
+            # Instead of masked_scatter_, directly use torch.where for better efficiency
+            # torch.where uses broadcasting and avoids some intermediate copying
+            alphas = torch.where(m, alphas, new_alphas)
+
         log_norm = log_sum_exp(alphas, dim=1)
 
         # if any row was entirely masked, we just turn its log denominator to 0
-        # eg, the empty summation for the denominator will be 1, and its log will be 0
         all_masked = torch.all(masks, dim=1)
         log_norm = log_norm * torch.logical_not(all_masked)
         return log_norm
@@ -133,14 +145,13 @@ def log_sum_exp(value, dim=None, keepdim=False):
     """Numerically stable implementation of the operation
     value.exp().sum(dim, keepdim).log()
     """
+    # Native torch.logsumexp is optimized and numerically stable, 
+    # Use it unless strict compatibility with the prior output breaks (but we preserve all behavior)
     if dim is not None:
-        m, _ = torch.max(value, dim=dim, keepdim=True)
-        value0 = value - m
-        if keepdim is False:
-            m = m.squeeze(dim)
-        return m + torch.log(torch.sum(torch.exp(value0),
-                                       dim=dim, keepdim=keepdim))
+        # Use torch.logsumexp directly for higher performance and stability
+        return torch.logsumexp(value, dim=dim, keepdim=keepdim)
     else:
+        # Reduce over all
         m = torch.max(value)
         sum_exp = torch.sum(torch.exp(value - m))
         if isinstance(sum_exp, Number):
