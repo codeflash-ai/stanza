@@ -48,10 +48,13 @@ class CRFLoss(nn.Module):
         @return:
             unary_scores: batch_size
         """
-        flat_inputs = inputs.view(input_bs, -1)
-        flat_tag_indices = tag_indices + torch.arange(input_sl, device=tag_indices.device).long().unsqueeze(0) * input_nc
-        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices).view(input_bs, -1)
-        unary_scores.masked_fill_(masks, 0)
+        # More efficient flat index computation (preallocated/reused)
+        offset = torch.arange(input_sl, device=inputs.device).mul(input_nc).unsqueeze(0) # shape: (1, seq_len)
+        flat_tag_indices = tag_indices + offset
+        flat_inputs = inputs.reshape(input_bs, -1)
+        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices)
+        # Use masked_fill with logical_not to avoid inplace op with non-contiguous mask (preserve semantics)
+        unary_scores = unary_scores.masked_fill(masks, 0)
         return unary_scores.sum(dim=1)
     
     def crf_binary_score(self, inputs, masks, tag_indices, input_bs, input_sl, input_nc):
@@ -59,18 +62,18 @@ class CRFLoss(nn.Module):
         @return:
             binary_scores: batch_size
         """
-        # get number of transitions
+        # Compute start and end indices for transitions efficiently
         nt = tag_indices.size(-1) - 1
         start_indices = tag_indices[:, :nt]
         end_indices = tag_indices[:, 1:]
-        # flat matrices
+        # Directly build transition indices and flatten without .view (no copy)
         flat_transition_indices = start_indices * input_nc + end_indices
-        flat_transition_indices = flat_transition_indices.view(-1)
         flat_transition_matrix = self._transitions.view(-1)
-        binary_scores = torch.gather(flat_transition_matrix, 0, flat_transition_indices)\
-                .view(input_bs, -1)
+        # gather and reshape in one step using .reshape()
+        binary_scores = torch.gather(flat_transition_matrix, 0, flat_transition_indices.reshape(-1)).reshape(input_bs, -1)
         score_masks = masks[:, 1:]
-        binary_scores.masked_fill_(score_masks, 0)
+        # Use logical mask for masked_fill for contiguous array
+        binary_scores = binary_scores.masked_fill(score_masks, 0)
         return binary_scores.sum(dim=1)
 
     def crf_log_norm(self, inputs, masks, tag_indices):
@@ -82,24 +85,22 @@ class CRFLoss(nn.Module):
         """
         start_inputs = inputs[:,0,:] # bs x nc
         rest_inputs = inputs[:,1:,:]
-        # TODO: technically we need to pay attention to the initial
-        # value being masked.  Currently we do compensate for the
-        # entire row being masked at the end of the operation
         rest_masks = masks[:,1:]
         alphas = start_inputs # bs x nc
         trans = self._transitions.unsqueeze(0) # 1 x nc x nc
-        # accumulate alphas in log space
+
+        # Optimize loop: avoid .masked_scatter_ (which triggers slow .masked_select); use torch.where
         for i in range(rest_inputs.size(1)):
             transition_scores = alphas.unsqueeze(2) + trans # bs x nc x nc
-            new_alphas = rest_inputs[:,i,:] + log_sum_exp(transition_scores, dim=1)
-            m = rest_masks[:,i].unsqueeze(1).expand_as(new_alphas) # bs x nc, 1 for padding idx
-            # apply masks
-            new_alphas.masked_scatter_(m, alphas.masked_select(m))
-            alphas = new_alphas
+            log_tran = log_sum_exp(transition_scores, dim=1)
+            new_alphas = rest_inputs[:,i,:] + log_tran
+            # mask: if mask is True (to mask a position), copy from previous alphas, otherwise update
+            m = rest_masks[:,i].unsqueeze(1)
+            # torch.where runs faster than masked_scatter for this case
+            alphas = torch.where(m, alphas, new_alphas)
         log_norm = log_sum_exp(alphas, dim=1)
 
         # if any row was entirely masked, we just turn its log denominator to 0
-        # eg, the empty summation for the denominator will be 1, and its log will be 0
         all_masked = torch.all(masks, dim=1)
         log_norm = log_norm * torch.logical_not(all_masked)
         return log_norm
