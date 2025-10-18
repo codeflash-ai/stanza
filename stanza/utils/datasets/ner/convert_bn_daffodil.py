@@ -59,7 +59,7 @@ def filter_broken_tags(train_sentences):
     """
     Eliminate any sentences where any of the tags were empty
     """
-    return [x for x in train_sentences if not any(y[1] is None for y in x)]
+    return [x for x in train_sentences if not next((True for y in x if y[1] is None), False)]
 
 def filter_bad_words(train_sentences):
     """
