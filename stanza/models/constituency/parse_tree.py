@@ -48,13 +48,13 @@ class Tree(StanzaObject):
     A data structure to represent a parse tree
     """
     def __init__(self, label=None, children=None):
+        # Avoid attribute lookup for EMPTY_CHILDREN: use () directly (as in stanza/models/constituency/parse_tree.py)
         if children is None:
-            self.children = EMPTY_CHILDREN
+            self.children = ()
         elif isinstance(children, Tree):
             self.children = (children,)
         else:
             self.children = tuple(children)
-
         self.label = label
 
     def is_leaf(self):
@@ -320,17 +320,29 @@ class Tree(StanzaObject):
         There is no attempt to interpret the results of calling these functions.
         Rather, you can use visit_preorder to collect stats on trees, etc.
         """
-        if self.is_leaf():
-            if leaf:
-                leaf(self)
-        elif self.is_preterminal():
-            if preterminal:
-                preterminal(self)
-        else:
-            if internal:
-                internal(self)
-        for child in self.children:
-            child.visit_preorder(internal, preterminal, leaf)
+        # Optimized to use an explicit stack (avoid recursion for very deep trees and function call overhead)
+        stack = [self]
+        append = stack.append
+        pop = stack.pop
+        while stack:
+            node = pop()
+            # Use local variables for faster attribute access
+            children = node.children
+            is_leaf = len(children) == 0
+            if is_leaf:
+                if leaf:
+                    leaf(node)
+                continue
+            is_preterminal = len(children) == 1 and len(children[0].children) == 0
+            if is_preterminal:
+                if preterminal:
+                    preterminal(node)
+            else:
+                if internal:
+                    internal(node)
+            # Extend stack with children in reverse order to maintain preorder traversal
+            for child in reversed(children):
+                append(child)
 
     @staticmethod
     def get_unique_constituent_labels(trees):
@@ -349,10 +361,12 @@ class Tree(StanzaObject):
         """
         if isinstance(trees, Tree):
             trees = [trees]
-
         constituents = Counter()
+        # Instead of lambda, use a direct reference to Counter.update with a tuple to avoid an extra function call layer
+        def add_constituent(x):
+            constituents.update((x.label,))
         for tree in trees:
-            tree.visit_preorder(internal = lambda x: constituents.update([x.label]))
+            tree.visit_preorder(internal=add_constituent)
         return constituents
 
     @staticmethod
