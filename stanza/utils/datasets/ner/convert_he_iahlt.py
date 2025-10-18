@@ -6,6 +6,8 @@ from stanza.utils.conll import CoNLL
 import stanza.utils.default_paths as default_paths
 from stanza.utils.datasets.ner.utils import write_dataset
 
+_ENTITY_SPLIT_PATTERN = re.compile(r"([()])")
+
 def output_entities(sentence):
     for word in sentence.words:
         misc = word.misc
@@ -22,11 +24,17 @@ def output_entities(sentence):
 def extract_single_sentence(sentence):
     current_entity = []
     words = []
+    # Minor micro-optimization: bind local variables for methods
+    append_word = words.append
+    split_entity = _ENTITY_SPLIT_PATTERN.split
+
     for word in sentence.words:
         text = word.text
         misc = word.misc
+
+        # Avoid unnecessary list allocation if misc is None
         if misc is None:
-            pieces = []
+            pieces = ()
         else:
             pieces = misc.split("|")
 
@@ -34,37 +42,51 @@ def extract_single_sentence(sentence):
         first_entity = False
         for piece in pieces:
             if piece.startswith("Entity="):
-                entity = piece.split("=", maxsplit=1)[1]
-                entity_pieces = re.split(r"([()])", entity)
-                entity_pieces = [x for x in entity_pieces if x]   # remove blanks from re.split
+                # Split only once for max performance
+                entity = piece[7:] if piece.startswith("Entity=") else piece.split("=", maxsplit=1)[1]
+                # Use pre-compiled regex, replacing re.split with pre-bound split_entity
+                entity_pieces = split_entity(entity)
+                # Remove blanks from re.split, can use list comprehension (no change)
+                entity_pieces = [x for x in entity_pieces if x]
+
+                # Use index iteration as before, but avoid function call overhead in len() per loop
+                entity_pieces_len = len(entity_pieces)
                 entity_idx = 0
-                while entity_idx < len(entity_pieces):
-                    if entity_pieces[entity_idx] == '(':
-                        assert len(entity_pieces) > entity_idx + 1, "Opening an unspecified entity"
-                        if len(current_entity) == 0:
+                while entity_idx < entity_pieces_len:
+                    piece_val = entity_pieces[entity_idx]
+                    if piece_val == '(':
+                        # assert unchanged
+                        assert entity_pieces_len > entity_idx + 1, "Opening an unspecified entity"
+                        if not current_entity:
                             first_entity = True
                         current_entity.append(entity_pieces[entity_idx + 1])
                         entity_idx += 2
-                    elif entity_pieces[entity_idx] == ')':
+                    elif piece_val == ')':
+                        # assert unchanged
                         assert entity_idx != 0, "Closing an unspecified entity"
-                        closes.append(entity_pieces[entity_idx-1])
+                        closes.append(entity_pieces[entity_idx - 1])
                         entity_idx += 1
                     else:
-                        # the entities themselves get added or removed via the ()
                         entity_idx += 1
 
-        if len(current_entity) == 0:
+        if not current_entity:
             entity = 'O'
         else:
-            entity = current_entity[0]
-            entity = "B-" + entity if first_entity else "I-" + entity
-        words.append((text, entity))
+            entity_val = current_entity[0]
+            entity = "B-" + entity_val if first_entity else "I-" + entity_val
+        append_word((text, entity))
 
         assert len(current_entity) >= len(closes), "Too many closes for the current open entities"
-        for close_entity in closes:
-            # TODO: check the close is closing the right thing
-            assert close_entity == current_entity[-1], "Closed the wrong entity: %s vs %s" % (close_entity, current_entity[-1])
-            current_entity = current_entity[:-1]
+        # Avoid building an intermediate list for closes if empty
+        if closes:
+            # Use reversed order to match the original LIFO behavior, but semantics is unchanged here as it iterates the closes as produced.
+            for close_entity in closes:
+                # assert unchanged
+                assert close_entity == current_entity[-1], (
+                    "Closed the wrong entity: %s vs %s" % (close_entity, current_entity[-1])
+                )
+                # Use pop() instead of slicing for much faster removal from end of list
+                current_entity.pop()
     return words
 
 def extract_sentences(doc):
