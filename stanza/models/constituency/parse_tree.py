@@ -339,8 +339,17 @@ class Tree(StanzaObject):
         """
         if isinstance(trees, Tree):
             trees = [trees]
-        constituents = Tree.get_constituent_counts(trees)
-        return sorted(set(constituents.keys()))
+        
+        labels = set()
+        for tree in trees:
+            stack = [tree]
+            while stack:
+                node = stack.pop()
+                if node.is_leaf() or node.is_preterminal():
+                    continue
+                labels.add(node.label)
+                stack.extend(node.children)
+        return sorted(labels)
 
     @staticmethod
     def get_constituent_counts(trees):
