@@ -120,10 +120,10 @@ def fix_open_close_error(gold_transition, pred_transition, gold_sequence, gold_i
 
     The Open we just missed must be forgotten - it cannot be reopened
     """
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
 
-    if not isinstance(pred_transition, CloseConstituent):
+    if type(pred_transition) is not CloseConstituent:
         return None
 
     # find the appropriate Open so we can reopen it
