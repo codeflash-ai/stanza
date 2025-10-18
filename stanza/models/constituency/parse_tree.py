@@ -364,8 +364,20 @@ class Tree(StanzaObject):
             trees = [trees]
 
         tags = set()
+        tags_add = tags.add  # minor speedup for loop closure
         for tree in trees:
-            tree.visit_preorder(preterminal = lambda x: tags.add(x.label))
+            # Use explicit stack traversal to avoid lambda & closure overhead
+            stack = [tree]
+            while stack:
+                node = stack.pop()
+                children = node.children
+                if children:
+                    first_child = children[0]
+                    if len(children) == 1 and not first_child.children:
+                        tags_add(node.label)
+                    else:
+                        for child in reversed(children):
+                            stack.append(child)
         return sorted(tags)
 
     @staticmethod
