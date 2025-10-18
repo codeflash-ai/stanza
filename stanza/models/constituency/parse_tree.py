@@ -320,17 +320,24 @@ class Tree(StanzaObject):
         There is no attempt to interpret the results of calling these functions.
         Rather, you can use visit_preorder to collect stats on trees, etc.
         """
-        if self.is_leaf():
-            if leaf:
-                leaf(self)
-        elif self.is_preterminal():
-            if preterminal:
-                preterminal(self)
-        else:
-            if internal:
-                internal(self)
-        for child in self.children:
-            child.visit_preorder(internal, preterminal, leaf)
+        # Stack-based manual DFS is faster than recursion due to reduced call overhead
+        stack = [self]
+        while stack:
+            node = stack.pop()
+            # Inline is_leaf and is_preterminal for performance
+            num_children = len(node.children)
+            if num_children == 0:
+                if leaf:
+                    leaf(node)
+                continue
+            elif num_children == 1 and len(node.children[0].children) == 0:
+                if preterminal:
+                    preterminal(node)
+            else:
+                if internal:
+                    internal(node)
+            # Use reversed order so first child is processed first (preorder)
+            stack.extend(reversed(node.children))
 
     @staticmethod
     def get_unique_constituent_labels(trees):
@@ -377,8 +384,11 @@ class Tree(StanzaObject):
             trees = [trees]
 
         words = set()
+        # Define the word-collecting function once and avoid lambda allocation in every call
+        def add_label(x):
+            words.add(x.label)
         for tree in trees:
-            tree.visit_preorder(leaf = lambda x: words.add(x.label))
+            tree.visit_preorder(leaf=add_label)
         return sorted(words)
 
     @staticmethod
