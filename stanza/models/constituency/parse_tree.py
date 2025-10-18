@@ -48,6 +48,7 @@ class Tree(StanzaObject):
     A data structure to represent a parse tree
     """
     def __init__(self, label=None, children=None):
+        # Use direct assignment with short-circuit logic for slightly faster initialization
         if children is None:
             self.children = EMPTY_CHILDREN
         elif isinstance(children, Tree):
@@ -303,9 +304,19 @@ class Tree(StanzaObject):
         return True
 
     def depth(self):
-        if not self.children:
+        # Optimize by avoiding generator for empty children;
+        # for small tuples, this is already quite fast, but explicitly avoid creating a generator in the base case
+        children = self.children
+        if not children:
             return 0
-        return 1 + max(x.depth() for x in self.children)
+        # Use local variable for 'children' for fast local lookup
+        # Use a for loop with explicit integer max, to minimize function call overhead in deep trees
+        max_depth = 0
+        for x in children:
+            d = x.depth()
+            if d > max_depth:
+                max_depth = d
+        return 1 + max_depth
 
     def visit_preorder(self, internal=None, preterminal=None, leaf=None):
         """
