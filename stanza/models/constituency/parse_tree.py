@@ -419,26 +419,29 @@ class Tree(StanzaObject):
 
     @staticmethod
     def get_compound_constituents(trees, separate_root=False):
+        is_leaf = Tree.is_leaf
+        is_preterminal = Tree.is_preterminal
+
         constituents = set()
         stack = deque()
         for tree in trees:
             if separate_root:
                 constituents.add((tree.label,))
-                for child in tree.children:
-                    stack.append(child)
+                stack.extend(tree.children)
             else:
                 stack.append(tree)
-            while len(stack) > 0:
+            while stack:
                 node = stack.pop()
-                if node.is_leaf() or node.is_preterminal():
+                if is_leaf(node) or is_preterminal(node):
                     continue
                 labels = [node.label]
-                while len(node.children) == 1 and not node.children[0].is_preterminal():
-                    node = node.children[0]
+                children = node.children
+                while len(children) == 1 and not is_preterminal(children[0]):
+                    node = children[0]
                     labels.append(node.label)
+                    children = node.children
                 constituents.add(tuple(labels))
-                for child in node.children:
-                    stack.append(child)
+                stack.extend(children)
         return sorted(constituents)
 
     # TODO: test different pattern
