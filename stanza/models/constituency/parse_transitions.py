@@ -285,7 +285,7 @@ class CompoundUnary(Transition):
             return is_root
 
     def components(self):
-        return [CompoundUnary(label) for label in self.label]
+        return list(map(CompoundUnary, self.label))
 
     def short_name(self):
         return "Unary"
