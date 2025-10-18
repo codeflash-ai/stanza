@@ -171,13 +171,13 @@ class MultiHeadAttention(nn.Module):
             self.d_content = d_model - d_positional
             self.d_positional = d_positional
 
-            self.w_qs1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_k // 2))
-            self.w_ks1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_k // 2))
-            self.w_vs1 = nn.Parameter(torch.FloatTensor(n_head, self.d_content, d_v // 2))
+            self.w_qs1 = nn.Parameter(torch.empty(n_head, self.d_content, d_k // 2))
+            self.w_ks1 = nn.Parameter(torch.empty(n_head, self.d_content, d_k // 2))
+            self.w_vs1 = nn.Parameter(torch.empty(n_head, self.d_content, d_v // 2))
 
-            self.w_qs2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_k // 2))
-            self.w_ks2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_k // 2))
-            self.w_vs2 = nn.Parameter(torch.FloatTensor(n_head, self.d_positional, d_v // 2))
+            self.w_qs2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_k // 2))
+            self.w_ks2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_k // 2))
+            self.w_vs2 = nn.Parameter(torch.empty(n_head, self.d_positional, d_v // 2))
 
             init.xavier_normal_(self.w_qs1)
             init.xavier_normal_(self.w_ks1)
@@ -187,9 +187,9 @@ class MultiHeadAttention(nn.Module):
             init.xavier_normal_(self.w_ks2)
             init.xavier_normal_(self.w_vs2)
         else:
-            self.w_qs = nn.Parameter(torch.FloatTensor(n_head, d_model, d_k))
-            self.w_ks = nn.Parameter(torch.FloatTensor(n_head, d_model, d_k))
-            self.w_vs = nn.Parameter(torch.FloatTensor(n_head, d_model, d_v))
+            self.w_qs = nn.Parameter(torch.empty(n_head, d_model, d_k))
+            self.w_ks = nn.Parameter(torch.empty(n_head, d_model, d_k))
+            self.w_vs = nn.Parameter(torch.empty(n_head, d_model, d_v))
 
             init.xavier_normal_(self.w_qs)
             init.xavier_normal_(self.w_ks)
@@ -209,80 +209,105 @@ class MultiHeadAttention(nn.Module):
         self.residual_dropout = FeatureDropout(residual_dropout)
 
     def split_qkv_packed(self, inp, qk_inp=None):
-        v_inp_repeated = inp.repeat(self.n_head, 1).view(self.n_head, -1, inp.size(-1)) # n_head x len_inp x d_model
+        # Optimize input repeat/view with expand to avoid unnecessary memory copy
+        n_head = self.n_head
+        len_inp = inp.size(0)
+        d_model = inp.size(-1)
+        v_inp_repeated = inp.unsqueeze(0).expand(n_head, len_inp, d_model)  # n_head x len_inp x d_model
+
         if qk_inp is None:
             qk_inp_repeated = v_inp_repeated
         else:
-            qk_inp_repeated = qk_inp.repeat(self.n_head, 1).view(self.n_head, -1, qk_inp.size(-1))
+            qk_inp_repeated = qk_inp.unsqueeze(0).expand(n_head, qk_inp.size(0), qk_inp.size(-1))
 
         if not self.partitioned:
-            q_s = torch.bmm(qk_inp_repeated, self.w_qs) # n_head x len_inp x d_k
-            k_s = torch.bmm(qk_inp_repeated, self.w_ks) # n_head x len_inp x d_k
-            v_s = torch.bmm(v_inp_repeated, self.w_vs) # n_head x len_inp x d_v
+            # Use torch.einsum to batch matrix multiplication efficiently
+            # torch.bmm(qk_inp_repeated, self.w_qs): each head x len_inp x d_k
+            # self.w_qs: n_head x d_model x d_k
+            q_s = torch.einsum('hld,hdk->hld', qk_inp_repeated, self.w_qs)
+            k_s = torch.einsum('hld,hdk->hld', qk_inp_repeated, self.w_ks)
+            v_s = torch.einsum('hld,hdv->hld', v_inp_repeated, self.w_vs)
         else:
-            q_s = torch.cat([
-                torch.bmm(qk_inp_repeated[:,:,:self.d_content], self.w_qs1),
-                torch.bmm(qk_inp_repeated[:,:,self.d_content:], self.w_qs2),
-                ], -1)
-            k_s = torch.cat([
-                torch.bmm(qk_inp_repeated[:,:,:self.d_content], self.w_ks1),
-                torch.bmm(qk_inp_repeated[:,:,self.d_content:], self.w_ks2),
-                ], -1)
-            v_s = torch.cat([
-                torch.bmm(v_inp_repeated[:,:,:self.d_content], self.w_vs1),
-                torch.bmm(v_inp_repeated[:,:,self.d_content:], self.w_vs2),
-                ], -1)
+            # In partitioned mode, split along hidden dimension and process separately
+            d_content = self.d_content
+            qk_content = qk_inp_repeated[:, :, :d_content]
+            qk_positional = qk_inp_repeated[:, :, d_content:]
+            v_content = v_inp_repeated[:, :, :d_content]
+            v_positional = v_inp_repeated[:, :, d_content:]
+
+            q_s_content = torch.einsum('hld,hdk->hld', qk_content, self.w_qs1)
+            q_s_position = torch.einsum('hld,hdk->hld', qk_positional, self.w_qs2)
+            q_s = torch.cat([q_s_content, q_s_position], -1)
+
+            k_s_content = torch.einsum('hld,hdk->hld', qk_content, self.w_ks1)
+            k_s_position = torch.einsum('hld,hdk->hld', qk_positional, self.w_ks2)
+            k_s = torch.cat([k_s_content, k_s_position], -1)
+
+            v_s_content = torch.einsum('hld,hdv->hld', v_content, self.w_vs1)
+            v_s_position = torch.einsum('hld,hdv->hld', v_positional, self.w_vs2)
+            v_s = torch.cat([v_s_content, v_s_position], -1)
         return q_s, k_s, v_s
 
     def pad_and_rearrange(self, q_s, k_s, v_s, batch_idxs):
-        # Input is padded representation: n_head x len_inp x d
-        # Output is packed representation: (n_head * mb_size) x len_padded x d
-        # (along with masks for the attention and output)
         n_head = self.n_head
         d_k, d_v = self.d_k, self.d_v
 
         len_padded = batch_idxs.max_len
         mb_size = batch_idxs.batch_size
-        q_padded = q_s.new_zeros((n_head, mb_size, len_padded, d_k))
-        k_padded = k_s.new_zeros((n_head, mb_size, len_padded, d_k))
-        v_padded = v_s.new_zeros((n_head, mb_size, len_padded, d_v))
-        invalid_mask = q_s.new_ones((mb_size, len_padded), dtype=DTYPE)
 
-        for i, (start, end) in enumerate(zip(batch_idxs.boundaries_np[:-1], batch_idxs.boundaries_np[1:])):
-            q_padded[:,i,:end-start,:] = q_s[:,start:end,:]
-            k_padded[:,i,:end-start,:] = k_s[:,start:end,:]
-            v_padded[:,i,:end-start,:] = v_s[:,start:end,:]
-            invalid_mask[i, :end-start].fill_(False)
+        # Use torch.empty and fill_ for mask, faster than new_ones
+        q_padded = torch.zeros((n_head, mb_size, len_padded, d_k), device=q_s.device, dtype=q_s.dtype)
+        k_padded = torch.zeros((n_head, mb_size, len_padded, d_k), device=k_s.device, dtype=k_s.dtype)
+        v_padded = torch.zeros((n_head, mb_size, len_padded, d_v), device=v_s.device, dtype=v_s.dtype)
+        invalid_mask = torch.empty((mb_size, len_padded), device=q_s.device, dtype=DTYPE).fill_(True)
 
-        return(
-            q_padded.view(-1, len_padded, d_k),
-            k_padded.view(-1, len_padded, d_k),
-            v_padded.view(-1, len_padded, d_v),
-            invalid_mask.unsqueeze(1).expand(mb_size, len_padded, len_padded).repeat(n_head, 1, 1),
-            (~invalid_mask).repeat(n_head, 1),
-            )
+        # Precompute slices for faster assignment
+        boundaries = batch_idxs.boundaries_np
+        index_range = range(len(boundaries) - 1)
+        for i in index_range:
+            start, end = boundaries[i], boundaries[i + 1]
+            length = end - start
+            q_padded[:, i, :length, :] = q_s[:, start:end, :]
+            k_padded[:, i, :length, :] = k_s[:, start:end, :]
+            v_padded[:, i, :length, :] = v_s[:, start:end, :]
+            invalid_mask[i, :length] = False
+
+        # Use .reshape instead of .view for safety with non-contiguous tensors
+        q_padded_flat = q_padded.reshape(-1, len_padded, d_k)
+        k_padded_flat = k_padded.reshape(-1, len_padded, d_k)
+        v_padded_flat = v_padded.reshape(-1, len_padded, d_v)
+        mask_unsqueezed = invalid_mask.unsqueeze(1)
+        attn_mask = mask_unsqueezed.expand(mb_size, len_padded, len_padded).repeat(n_head, 1, 1)
+        output_mask = (~invalid_mask).repeat(n_head, 1)
+
+        return (
+            q_padded_flat,
+            k_padded_flat,
+            v_padded_flat,
+            attn_mask,
+            output_mask,
+        )
 
     def combine_v(self, outputs):
-        # Combine attention information from the different heads
         n_head = self.n_head
-        outputs = outputs.view(n_head, -1, self.d_v) # n_head x len_inp x d_kv
+        # Prefer .reshape in case outputs is not contiguous (after advanced indexing)
+        outputs = outputs.reshape(n_head, -1, self.d_v) # n_head x len_inp x d_kv
 
         if not self.partitioned:
             # Switch from n_head x len_inp x d_v to len_inp x (n_head * d_v)
-            outputs = torch.transpose(outputs, 0, 1).contiguous().view(-1, n_head * self.d_v)
-
+            outputs = torch.transpose(outputs, 0, 1).contiguous().reshape(-1, n_head * self.d_v)
             # Project back to residual size
             outputs = self.proj(outputs)
         else:
             d_v1 = self.d_v // 2
-            outputs1 = outputs[:,:,:d_v1]
-            outputs2 = outputs[:,:,d_v1:]
-            outputs1 = torch.transpose(outputs1, 0, 1).contiguous().view(-1, n_head * d_v1)
-            outputs2 = torch.transpose(outputs2, 0, 1).contiguous().view(-1, n_head * d_v1)
+            outputs1 = outputs[:, :, :d_v1]
+            outputs2 = outputs[:, :, d_v1:]
+            outputs1 = torch.transpose(outputs1, 0, 1).contiguous().reshape(-1, n_head * d_v1)
+            outputs2 = torch.transpose(outputs2, 0, 1).contiguous().reshape(-1, n_head * d_v1)
             outputs = torch.cat([
                 self.proj1(outputs1),
                 self.proj2(outputs2),
-                ], -1)
+            ], -1)
 
         return outputs
 
@@ -301,7 +326,7 @@ class MultiHeadAttention(nn.Module):
         outputs_padded, attns_padded = self.attention(
             q_padded, k_padded, v_padded,
             attn_mask=attn_mask,
-            )
+        )
         outputs = outputs_padded[output_mask]
         # (n_head * len_inp) x d_kv
         outputs = self.combine_v(outputs)
