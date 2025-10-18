@@ -489,12 +489,16 @@ class Tree(StanzaObject):
         Labels in the map are replaced with the mapped value.
         Labels not in the map are unchanged.
         """
-        if self.is_leaf():
+        # Inline label check for slight efficiency
+        if not self.children:  # is_leaf
             new_label = word_map.get(self.label, self.label)
             return Tree(new_label)
-        if self.is_preterminal():
-            return Tree(self.label, self.children[0].remap_words(word_map))
-        return Tree(self.label, [child.remap_words(word_map) for child in self.children])
+        children = self.children
+        if len(children) == 1 and not children[0].children:  # is_preterminal
+            # Avoid one-element tuple construction in argument
+            return Tree(self.label, children[0].remap_words(word_map))
+        # Preallocate list with list comprehension for speed
+        return Tree(self.label, [child.remap_words(word_map) for child in children])
 
     def replace_words(self, words):
         """
