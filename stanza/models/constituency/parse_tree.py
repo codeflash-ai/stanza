@@ -503,17 +503,31 @@ class Tree(StanzaObject):
         Returns a new tree
         """
         word_iterator = iter(words)
+
         def recursive_replace_words(subtree):
-            if subtree.is_leaf():
+            # Avoid repeated is_leaf calls by checking children directly
+            if not getattr(subtree, 'children', None) or len(subtree.children) == 0:
                 word = next(word_iterator, None)
                 if word is None:
                     raise ValueError("Not enough words to replace all leaves")
                 return Tree(word)
-            return Tree(subtree.label, [recursive_replace_words(x) for x in subtree.children])
+            # Use list comprehension for children reuse, but preallocate list for efficiency
+            children = subtree.children
+            replaced_children = []
+            append = replaced_children.append  # local var for speed
+            for x in children:
+                append(recursive_replace_words(x))
+            return Tree(subtree.label, replaced_children)
 
         new_tree = recursive_replace_words(self)
-        if any(True for _ in word_iterator):
+
+        # Efficient check for remaining words
+        try:
+            next(word_iterator)
+            # If the above line succeeds, there are too many words
             raise ValueError("Too many words for the given tree")
+        except StopIteration:
+            pass
         return new_tree
 
 
