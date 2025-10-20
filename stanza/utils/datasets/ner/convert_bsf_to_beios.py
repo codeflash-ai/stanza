@@ -29,14 +29,19 @@ def format_token_as_beios(token: str, tag: str) -> list:
 
 def format_token_as_iob(token: str, tag: str) -> list:
     t_words = token.split()
-    res = []
-    if len(t_words) == 1:
-        res.append(token + ' B-' + tag)
+    n = len(t_words)
+    if n == 1:
+        # Single-word token: one B- entry
+        return [f"{token} B-{tag}"]
     else:
-        res.append(t_words[0] + ' B-' + tag)
-        for t_word in t_words[1:]:
-            res.append(t_word + ' I-' + tag)
-    return res
+        # Multi-word token: first as B-, rest as I-
+        # Pre-allocate output list for speed
+        res = [None] * n
+        res[0] = f"{t_words[0]} B-{tag}"
+        B_prefix = f" I-{tag}"
+        for i in range(1, n):
+            res[i] = t_words[i] + B_prefix
+        return res
 
 
 def convert_bsf(data: str, bsf_markup: str, converter: str = 'beios') -> str:
