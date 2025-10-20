@@ -27,12 +27,17 @@ class DataProcessor():
         self.target_word = target_word
         self.target_word_regex = re.compile(target_word)
         self.target_upos = target_upos
+        self._target_upos_set = set(target_upos)  # For faster lookup
         self.allowed_lemmas = re.compile(allowed_lemmas)
 
     def keep_sentence(self, sentence):
+        tw_fullmatch = self.target_word_regex.fullmatch  # Local reference for perf
+        upos_set = self._target_upos_set  # Local reference for perf
         for word in sentence.words:
-            if self.target_word_regex.fullmatch(word.text) and word.upos in self.target_upos:
-                return True
+            # Reorder to check 'word.upos in self.target_upos' first as set lookup is much cheaper than regex
+            if word.upos in upos_set:
+                if tw_fullmatch(word.text):
+                    return True
         return False
 
     def find_all_occurrences(self, sentence) -> List[int]:
