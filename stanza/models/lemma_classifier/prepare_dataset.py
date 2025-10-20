@@ -27,6 +27,7 @@ class DataProcessor():
         self.target_word = target_word
         self.target_word_regex = re.compile(target_word)
         self.target_upos = target_upos
+        self._target_upos_set = set(target_upos)  # For fast lookup in find_all_occurrences
         self.allowed_lemmas = re.compile(allowed_lemmas)
 
     def keep_sentence(self, sentence):
@@ -39,11 +40,17 @@ class DataProcessor():
         """
         Finds all occurrences of self.target_word in tokens and returns the index(es) of such occurrences.
         """
-        occurrences = []
-        for idx, token in enumerate(sentence.words):
-            if self.target_word_regex.fullmatch(token.text) and token.upos in self.target_upos:
-                occurrences.append(idx)
-        return occurrences
+        # Locally bind for performance
+        fullmatch = self.target_word_regex.fullmatch
+        upos_set = self._target_upos_set
+        words = sentence.words
+
+        # Avoid attribute lookups inside loop; tightest loop possible
+        return [
+            idx
+            for idx, token in enumerate(words)
+            if fullmatch(token.text) and token.upos in upos_set
+        ]
 
     @staticmethod
     def write_output_file(save_name, target_upos, sentences):
