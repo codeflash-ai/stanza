@@ -38,20 +38,37 @@ CorefDoc = namedtuple("CorefDoc", ['doc_id', 'sentences', 'coref_spans'])
 
 # TODO: binary search for speed?
 def search_mention_start(doc, mention_start):
-    for sent_idx, sentence in enumerate(doc.sentences):
-        if mention_start < doc.sentences[sent_idx].tokens[-1].end_char:
-            break
-    else:
+    sentences = doc.sentences
+    # Binary search over sentences for sent_idx: the first where mention_start < tokens[-1].end_char
+    left, right = 0, len(sentences)
+    while left < right:
+        mid = (left + right) // 2
+        last_token = sentences[mid].tokens[-1]
+        if mention_start < last_token.end_char:
+            right = mid
+        else:
+            left = mid + 1
+    if left == len(sentences):
         raise ValueError
-    for word_idx, word in enumerate(sentence.words):
-        if word.end_char is None:
+    sent_idx = left
+    sentence = sentences[sent_idx]
+    
+    words = sentence.words
+    # Binary search over words for word_idx: the first where mention_start < word.end_char
+    left, right = 0, len(words)
+    while left < right:
+        mid = (left + right) // 2
+        if words[mid].end_char is None:
             print("Found weirdness on sentence:\n|%s|" % sentence.text)
-            print(word.parent)
+            print(words[mid].parent)
             return None, None
-        if mention_start < word.end_char:
-            break
-    else:
+        if mention_start < words[mid].end_char:
+            right = mid
+        else:
+            left = mid + 1
+    if left == len(words):
         raise ValueError
+    word_idx = left
     return sent_idx, word_idx
 
 def search_mention_end(doc, mention_end):
