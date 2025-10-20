@@ -12,6 +12,8 @@ from stanza.models.classifiers.utils import WVType
 from stanza.models.common.vocab import PAD, PAD_ID, UNK, UNK_ID
 import stanza.models.constituency.tree_reader as tree_reader
 
+_digit_re = re.compile('[0-9]')
+
 logger = logging.getLogger('stanza')
 
 class SentimentDatum:
@@ -41,30 +43,33 @@ def update_text(sentence: List[str], wordvec_type: WVType) -> List[str]:
     Process a line of text (with tokenization provided as whitespace)
     into a list of strings.
     """
-    # stanford sentiment dataset has a lot of random - and /
-    # remove those characters and flatten the newly created sublists into one list each time
-    sentence = [y for x in sentence for y in x.split("-") if y]
-    sentence = [y for x in sentence for y in x.split("/") if y]
-    sentence = [x.strip() for x in sentence]
-    sentence = [x for x in sentence if x]
-    if sentence == []:
+    # Collapse splitting by both '-' and '/' in a single pass for efficiency
+    tokens: List[str] = []
+    for token in sentence:
+        for subtoken in token.replace('-', ' ').replace('/', ' ').split():
+            st = subtoken.strip()
+            if st:
+                tokens.append(st)
+
+    if not tokens:
         # removed too much
-        sentence = ["-"]
+        tokens = ["-"]
     # our current word vectors are all entirely lowercased
-    sentence = [word.lower() for word in sentence]
+    tokens = [word.lower() for word in tokens]
+
     if wordvec_type == WVType.WORD2VEC:
-        return sentence
+        return tokens
     elif wordvec_type == WVType.GOOGLE:
-        new_sentence = []
-        for word in sentence:
+        # Minimize appends in loop
+        def normalize(word: str) -> str:
             if word != '0' and word != '1':
-                word = re.sub('[0-9]', '#', word)
-            new_sentence.append(word)
-        return new_sentence
+                return _digit_re.sub('#', word)
+            return word
+        return [normalize(word) for word in tokens]
     elif wordvec_type == WVType.FASTTEXT:
-        return sentence
+        return tokens
     elif wordvec_type == WVType.OTHER:
-        return sentence
+        return tokens
     else:
         raise ValueError("Unknown wordvec_type {}".format(wordvec_type))
 
