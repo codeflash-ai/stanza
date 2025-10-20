@@ -17,6 +17,8 @@ from tqdm import tqdm
 from stanza import DownloadMethod, Pipeline
 import stanza.utils.default_paths as default_paths
 
+_unicode_pattern = re.compile(r'\\u[A-Za-z0-9]{4}')
+
 def read_data(path: str) -> list:
     """
     Reads the Armenian named entity recognition dataset
@@ -34,7 +36,7 @@ def filter_unicode_broken_characters(text: str) -> str:
     """
     Removes all unicode characters in text
     """
-    return re.sub(r'\\u[A-Za-z0-9]{4}', '', text)
+    return _unicode_pattern.sub('', text)
 
 
 def get_label(tok_start_char: int, tok_end_char: int, labels: list) -> list:
