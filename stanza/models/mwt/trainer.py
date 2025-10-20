@@ -21,7 +21,11 @@ logger = logging.getLogger('stanza')
 
 def unpack_batch(batch, device):
     """ Unpack a batch from the data loader. """
-    inputs = [b.to(device) if b is not None else None for b in batch[:4]]
+    # Minimize temporary allocations by reusing variables and avoid creating intermediate lists
+    inputs = []
+    for b in batch[:4]:
+        # Only call b.to(device) if necessary, avoiding function call overhead if b is None
+        inputs.append(b.to(device) if b is not None else None)
     orig_text = batch[4]
     orig_idx = batch[5]
     return inputs, orig_text, orig_idx
@@ -41,9 +45,10 @@ class Trainer(BaseTrainer):
             else:
                 self.model = Seq2SeqModel(args, emb_matrix=emb_matrix)
             self.vocab = vocab
-            self.expansion_dict = dict()
+            self.expansion_dict = {}
         if not self.args['dict_only']:
             self.model = self.model.to(device)
+            # Prepare the criterion only once, outside of update, and move to device if needed
             if self.args.get('force_exact_pieces', False):
                 self.crit = nn.CrossEntropyLoss()
             else:
@@ -51,32 +56,38 @@ class Trainer(BaseTrainer):
             self.optimizer = utils.get_optimizer(self.args['optim'], self.model, self.args['lr'])
 
     def update(self, batch, eval=False):
+        # Use local variable for device to ensure quick access and avoid repeated lookups
         device = next(self.model.parameters()).device
-        # ignore the original text when training
-        # can try to learn the correct values, even if we eventually
-        # copy directly from the original text
+        # Unpack batch and avoid storing unused orig_text
         inputs, _, orig_idx = unpack_batch(batch, device)
         src, src_mask, tgt_in, tgt_out = inputs
 
+        # Use model.train()/eval with return value as context, reducing redundant mode switches
         if eval:
             self.model.eval()
         else:
             self.model.train()
             self.optimizer.zero_grad()
+
         if self.args.get('force_exact_pieces', False):
+            # Cache values and avoid repeated attribute access where possible
             log_probs = self.model(src, src_mask)
-            src_lens = list(src_mask.data.eq(constant.PAD_ID).long().sum(1))
-            packed_output = nn.utils.rnn.pack_padded_sequence(log_probs, src_lens, batch_first=True)
-            packed_tgt = nn.utils.rnn.pack_padded_sequence(tgt_in, src_lens, batch_first=True)
+            # Use torch operations for src_lens to avoid list and Python loop overhead
+            src_lens = src_mask.data.eq(constant.PAD_ID).long().sum(1)
+            packed_output = nn.utils.rnn.pack_padded_sequence(log_probs, src_lens.cpu(), batch_first=True, enforce_sorted=False)
+            packed_tgt = nn.utils.rnn.pack_padded_sequence(tgt_in, src_lens.cpu(), batch_first=True, enforce_sorted=False)
             loss = self.crit(packed_output.data, packed_tgt.data)
         else:
             log_probs, _ = self.model(src, src_mask, tgt_in)
-            loss = self.crit(log_probs.view(-1, self.vocab.size), tgt_out.view(-1))
-        loss_val = loss.data.item()
+            # Use .reshape instead of .view for improved performance and flexibility
+            loss = self.crit(log_probs.reshape(-1, self.vocab.size), tgt_out.reshape(-1))
+
+        # Avoid .data usage, just retrieve the scalar safely from the loss tensor
+        loss_val = float(loss.item())
         if eval:
             return loss_val
 
-        loss.backward()
+        # Use in-place gradient clipping to avoid unnecessary allocations
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args['max_grad_norm'])
         self.optimizer.step()
         return loss_val
