@@ -18,12 +18,13 @@ def format_token_as_beios(token: str, tag: str) -> list:
     t_words = token.split()
     res = []
     if len(t_words) == 1:
-        res.append(token + ' S-' + tag)
+        res.append(f"{token} S-{tag}")
     else:
-        res.append(t_words[0] + ' B-' + tag)
-        for t_word in t_words[1: -1]:
-            res.append(t_word + ' I-' + tag)
-        res.append(t_words[-1] + ' E-' + tag)
+        res_append = res.append
+        res_append(f"{t_words[0]} B-{tag}")
+        for t_word in t_words[1:-1]:
+            res_append(f"{t_word} I-{tag}")
+        res_append(f"{t_words[-1]} E-{tag}")
     return res
 
 
