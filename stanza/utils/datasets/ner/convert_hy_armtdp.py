@@ -16,6 +16,9 @@ from tqdm import tqdm
 
 from stanza import DownloadMethod, Pipeline
 import stanza.utils.default_paths as default_paths
+from bisect import bisect_left
+
+_filter_unicode_broken_characters_re = re.compile(r'\\u[A-Za-z0-9]{4}')
 
 def read_data(path: str) -> list:
     """
@@ -34,7 +37,7 @@ def filter_unicode_broken_characters(text: str) -> str:
     """
     Removes all unicode characters in text
     """
-    return re.sub(r'\\u[A-Za-z0-9]{4}', '', text)
+    return _filter_unicode_broken_characters_re.sub('', text)
 
 
 def get_label(tok_start_char: int, tok_end_char: int, labels: list) -> list:
@@ -54,12 +57,22 @@ def format_sentences(paragraphs: list, nlp_hy: Pipeline) -> list:
     """
     sentences = []
     for paragraph in tqdm(paragraphs):
-        doc = nlp_hy(filter_unicode_broken_characters(paragraph['text']))
+        text = filter_unicode_broken_characters(paragraph['text'])
+        doc = nlp_hy(text)
+        labels = paragraph['labels']
+
+        # Fast interval lookup for labels only if more than 3 labels (otherwise linear is cheaper)
+        if len(labels) > 3:
+            starts, sorted_labels = _build_label_intervals(labels)
+            get_label_fn = lambda start, end: _find_label_intervals(start, end, starts, sorted_labels)
+        else:
+            get_label_fn = lambda start, end: get_label(start, end, labels)
+
         for sentence in doc.sentences:
             sentence_ents = []
             entity = []
             for token in sentence.tokens:
-                label = get_label(token.start_char, token.end_char, paragraph['labels'])
+                label = get_label_fn(token.start_char, token.end_char)
                 if label:
                     entity.append(token.text)
                     if token.end_char == label[1]:
@@ -130,6 +143,28 @@ def convert_dataset(base_input_path, base_output_path, short_name, download_meth
     tagged_sentences = format_sentences(paragraphs, nlp_hy)
     beios_sentences = convert_to_bioes(tagged_sentences)
     train_test_dev_split(beios_sentences, base_output_path, short_name)
+
+def _build_label_intervals(labels: list) -> tuple[list, list]:
+    """
+    Preprocesses label list for fast lookup: builds sorted start list for binary search.
+    """
+    starts = [label[0] for label in labels]
+    return starts, labels
+
+def _find_label_intervals(tok_start_char: int, tok_end_char: int, starts: list, labels: list) -> list:
+    """
+    Uses binary search to find the matching label interval efficiently.
+    Returns the label that matches the token, or empty list.
+    """
+    # Find insertion point for tok_start_char
+    idx = bisect_left(starts, tok_start_char)
+    # Check at idx and previous
+    for i in (idx, idx-1):
+        if 0 <= i < len(labels):
+            label = labels[i]
+            if label[0] <= tok_start_char and label[1] >= tok_end_char:
+                return label
+    return []
 
 
 if __name__ == '__main__':
