@@ -76,7 +76,7 @@ def get_model_name(args):
     """
     The charlm saves forward and backward charlms to the same dir, but with different filenames
     """
-    return "%s_charlm" % args.direction
+    return f"{args.direction}_charlm"
 
 def main():
     common.main(run_treebank, "charlm", get_model_name, add_charlm_args, charlm.build_argparse())
