@@ -661,6 +661,7 @@ def augment_punct(sents):
 
 def remove_accents_from_words(sents):
     new_sents = []
+    strip_accents = common.strip_accents
     for sent in sents:
         new_sent = []
         for line in sent:
@@ -668,7 +669,7 @@ def remove_accents_from_words(sents):
                 new_sent.append(line)
             else:
                 pieces = line.split("\t")
-                pieces[1] = common.strip_accents(pieces[1])
+                pieces[1] = strip_accents(pieces[1])
                 new_sent.append("\t".join(pieces))
         new_sents.append(new_sent)
     return new_sents
