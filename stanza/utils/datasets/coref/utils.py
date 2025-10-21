@@ -33,10 +33,12 @@ class DynamicDepth():
         Returns:
             int: Relative depth of the word at the index
         """
+        heads = self.relative_heads  # local var for fast access
         # if the head for the current index is outside the scope, this index is a relative root
-        if self.relative_heads[index] >= len(self.relative_heads) or self.relative_heads[index] < 0:
+        head = heads[index]
+        if head >= len(heads) or head < 0:
             return 0
-        return self._get_depth_recursive(self.relative_heads[index]) + 1
+        return self._get_depth_recursive(head) + 1
 
 def find_cconj_head(heads, upos, start, end):
     """
