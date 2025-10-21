@@ -1,4 +1,3 @@
-
 import argparse
 from enum import Enum
 import glob
@@ -56,8 +55,13 @@ def strip_accents(word):
     """
     Remove diacritics from words such as in the UD GRC datasets
     """
-    converted = ''.join(c for c in unicodedata.normalize('NFD', word)
-                        if unicodedata.category(c) not in ('Mn'))
+    if word.isascii():
+        return word
+    normalize = unicodedata.normalize
+    category = unicodedata.category
+    decomposed = normalize('NFD', word)
+    # Using a list comprehension is slightly faster than a generator in join
+    converted = ''.join([c for c in decomposed if category(c) != 'Mn'])
     if len(converted) == 0:
         return word
     return converted
