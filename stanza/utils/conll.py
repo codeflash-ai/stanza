@@ -24,35 +24,54 @@ class CoNLL:
         comment in each sentence in the data.
         """
         # f is open() or io.StringIO()
-        doc, sent = [], []
-        doc_comments, sent_comments = [], []
+        doc = []
+        sent = []
+        doc_comments = []
+        sent_comments = []
+        lstrip = str.lstrip
+        rstrip = str.rstrip
+        split_tab = str.split
+        startswith = str.startswith
+        append_doc = doc.append
+        append_doc_comments = doc_comments.append
+
+        # Pre-bind frequently used constants locally for micro-optimization
+        _FIELD_NUM = FIELD_NUM
+        _LINE_NUMBER = LINE_NUMBER
+
         for line_idx, line in enumerate(f):
             # leave whitespace such as NBSP, in case it is meaningful in the conll-u doc
-            line = line.lstrip().rstrip(' \n\r\t')
-            if len(line) == 0:
-                if len(sent) > 0:
-                    doc.append(sent)
+            line = lstrip(line)
+            line = rstrip(line, ' \n\r\t')
+            if not line:
+                if sent:
+                    append_doc(sent)
                     sent = []
-                    doc_comments.append(sent_comments)
+                    append_doc_comments(sent_comments)
                     sent_comments = []
             else:
-                if line.startswith('#'): # read comment line
+                if startswith(line, '#'): # read comment line
                     sent_comments.append(line)
                     continue
-                array = line.split('\t')
-                if ignore_gapping and '.' in array[0]:
+                array = split_tab(line, '\t')
+                # Gapping check (rare, but worth short-circuiting early)
+                arr0 = array[0]
+                if ignore_gapping and '.' in arr0:
                     continue
-                if len(array) != FIELD_NUM:
-                    raise CoNLLError(f"Cannot parse CoNLL line {line_idx+1}: expecting {FIELD_NUM} fields, {len(array)} found at line {line_idx}\n  {array}")
+                if len(array) != _FIELD_NUM:
+                    raise CoNLLError(
+                        f"Cannot parse CoNLL line {line_idx+1}: expecting {_FIELD_NUM} fields, {len(array)} found at line {line_idx}\n  {array}"
+                    )
                 if keep_line_numbers:
-                    if array[-1] == "_" or array[-1] is None:
-                        array[-1] = "%s=%d" % (LINE_NUMBER, line_idx)
+                    arr_last = array[-1]
+                    if arr_last == "_" or arr_last is None:
+                        array[-1] = "%s=%d" % (_LINE_NUMBER, line_idx)
                     else:
-                        array[-1] = "%s|%s=%d" % (array[-1], LINE_NUMBER, line_idx)
-                sent += [array]
-        if len(sent) > 0:
-            doc.append(sent)
-            doc_comments.append(sent_comments)
+                        array[-1] = "%s|%s=%d" % (arr_last, _LINE_NUMBER, line_idx)
+                sent.append(array)
+        if sent:
+            append_doc(sent)
+            append_doc_comments(sent_comments)
         return doc, doc_comments
 
     @staticmethod
