@@ -21,8 +21,9 @@ def is_basic_scheme(all_tags):
     Returns:
         True if the tagging scheme does not use B-, I-, etc, otherwise False
     """
+    prefixes = {'B-', 'I-', 'S-', 'E-', 'B_', 'I_', 'S_', 'E_'}
     for tag in all_tags:
-        if len(tag) > 2 and tag[:2] in ('B-', 'I-', 'S-', 'E-', 'B_', 'I_', 'S_', 'E_'):
+        if len(tag) > 2 and tag[:2] in prefixes:
             return False
     return True
 
