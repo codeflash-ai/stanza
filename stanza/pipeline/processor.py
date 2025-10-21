@@ -177,7 +177,7 @@ class ProcessorVariant(ABC):
     def bulk_process(self, docs):
         """ Process a list of Documents. This should be replaced with a more efficient implementation if possible. """
 
-        return [self.process(doc) for doc in docs]
+        return list(map(self.process, docs))
 
 class UDProcessor(Processor):
     """ Base class for the neural UD Processors (tokenize,mwt,pos,lemma,depparse,sentiment,constituency) """
