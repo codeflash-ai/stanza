@@ -121,11 +121,15 @@ def resolve_entity(entity, entities):
 def eliminate_overlapping_entities(entities_list):
     # we eliminate entities which are at least partially contained in one ocurring prior to them
     # this amounts to removing overlap
+    # Precompute target sets for each entity for faster lookup
+    target_sets = [set(entity["targets"]) for entity in entities_list]
+    ent_ids = [entity["ent_id"] for entity in entities_list]
     subsumed = set([])
-    for sub_i, sub in enumerate(entities_list):
-        for over in entities_list[:sub_i]:
-            if any([target in over["targets"] for target in sub["targets"]]):
-                subsumed.add(sub["ent_id"])
+    seen_targets = set()
+    for i, targets in enumerate(target_sets):
+        if targets & seen_targets:
+            subsumed.add(ent_ids[i])
+        seen_targets.update(targets)
     return [entity for entity in entities_list if entity["ent_id"] not in subsumed]
 
 
