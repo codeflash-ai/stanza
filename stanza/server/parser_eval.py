@@ -46,11 +46,7 @@ def collate(gold_treebank, predictions_treebank):
     """
     Turns a list of gold and prediction into a evaluation object
     """
-    treebank = []
-    for gold, prediction in zip(gold_treebank, predictions_treebank):
-        result = ParseResult(gold, [prediction], None, None)
-        treebank.append(result)
-    return treebank
+    return [ParseResult(gold, [prediction], None, None) for gold, prediction in zip(gold_treebank, predictions_treebank)]
 
 
 class EvaluateParser(JavaProtobufContext):
