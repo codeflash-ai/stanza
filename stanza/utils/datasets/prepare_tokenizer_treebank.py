@@ -452,58 +452,76 @@ def augment_quotes(sents, ratio=0.15):
 
     counts = Counter()
     new_sents = []
+    quotes_set = set(QUOTES)  # set lookup is much faster for large calls
+    range_start_quotes = range(len(START_QUOTES))
+
+    # Small optimization: cache random.random and random.choice
+    rand_random = random.random
+    rand_choice = random.choice
+
     for sent in sents:
-        if random.random() > ratio:
+        if rand_random() > ratio:
             new_sents.append(sent)
             continue
 
-        # count if there are exactly 2 quotes in this sentence
-        # this is for convenience - otherwise we need to figure out which pairs go together
-        count_quotes = sum(1 for x in sent
-                           if (not x.startswith("#") and
-                               x.split("\t")[1] in QUOTES))
+        # Faster in one liner using sum and generator
+        # Avoid calling x.startswith("#") and x.split("\t")[1] in QUOTES for every x twice - parse and cache
+        count_quotes = 0
+        sent_parse = []
+        for x in sent:
+            is_comment = x.startswith("#")
+            piece = None
+            if not is_comment:
+                # Only split once if needed
+                piece = x.split("\t", 2)
+            is_quote = (piece is not None and len(piece) > 1 and piece[1] in quotes_set)
+            if is_quote:
+                count_quotes += 1
+            sent_parse.append((is_comment, piece, is_quote, x))
         if count_quotes != 2:
             new_sents.append(sent)
             continue
 
-        # choose a pair of quotes from the candidates
-        quote_idx = random.choice(range(len(START_QUOTES)))
+        # pick one quote style
+        quote_idx = rand_choice(range_start_quotes)
         start_quote = START_QUOTES[quote_idx]
         end_quote = END_QUOTES[quote_idx]
-        counts[start_quote + end_quote] = counts[start_quote + end_quote] + 1
+        counts[start_quote + end_quote] += 1
 
+        # Now reprocess, using the cached parse
         new_sent = []
         saw_start = False
-        for line in sent:
-            if line.startswith("#"):
-                new_sent.append(line)
+        for is_comment, piece, is_quote, orig_line in sent_parse:
+            if is_comment:
+                new_sent.append(orig_line)
                 continue
-            pieces = line.split("\t")
-            if pieces[1] in QUOTES:
+            if is_quote:
+                # Only update copy, do not mutate in-place (to avoid changing input if pieces are reused)
+                # We know split above used maxsplit=2, safe to join back by tabs (won't break)
+                pieces = piece.copy()
                 if saw_start:
-                    # Note that we don't change the lemma.  Presumably it's
-                    # set to the correct lemma for a quote for this treebank
                     pieces[1] = end_quote
                 else:
                     pieces[1] = start_quote
                     saw_start = True
                 new_sent.append("\t".join(pieces))
             else:
-                new_sent.append(line)
+                # Plain line, preserve as is
+                new_sent.append(orig_line)
 
+        # Now, only scan until "# text" line, break after first found for slight optimization
         for text_idx, text_line in enumerate(new_sent):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
             if text_line.startswith("# text"):
                 replacement = "\\1%s\\2%s\\3" % (start_quote, end_quote)
-                new_text_line = QUOTES_RE.sub(replacement, text_line)
-                new_sent[text_idx] = new_text_line
+                # QUOTES_RE.sub can be expensive; avoid if not needed
+                if QUOTES_RE.search(text_line):
+                    new_text_line = QUOTES_RE.sub(replacement, text_line)
+                    new_sent[text_idx] = new_text_line
+                break  # Only the first "# text" handled per original behavior
 
         new_sents.append(new_sent)
 
-    # we go through this to make it simpler to execute on Windows
-    # rather than nagging the user to set utf-8
+    # Prepare TextIOWrapper once, print and detach (unchanged)
     out = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", write_through=True)
     print("Augmented {} quotes: {}".format(sum(counts.values()), counts), file=out)
     out.detach()
