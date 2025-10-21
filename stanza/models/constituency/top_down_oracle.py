@@ -301,23 +301,23 @@ def fix_close_shift_ambiguous_later(gold_transition, pred_transition, gold_seque
 
     An alternate strategy would be to Close as soon as possible after the Shift.
     """
-    if not isinstance(pred_transition, Shift):
+    if type(pred_transition) is not Shift:
         return None
 
-    if not isinstance(gold_transition, CloseConstituent):
+    if type(gold_transition) is not CloseConstituent:
         return None
 
     num_closes = 0
-    while isinstance(gold_sequence[gold_index + num_closes], CloseConstituent):
+    while type(gold_sequence[gold_index + num_closes]) is CloseConstituent:
         num_closes += 1
 
-    if not isinstance(gold_sequence[gold_index + num_closes], Shift):
+    if type(gold_sequence[gold_index + num_closes]) is not Shift:
         # TODO: we should be able to handle this case too (an Open)
         # however, it will be rare once the parser gets going and it
         # would cause a lot of errors, anyway
         return None
 
-    if isinstance(gold_sequence[gold_index + num_closes + 1], CloseConstituent):
+    if type(gold_sequence[gold_index + num_closes + 1]) is CloseConstituent:
         # this one should just have been satisfied in the non-ambiguous version
         return None
 
