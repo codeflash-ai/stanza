@@ -124,10 +124,25 @@ class DynamicOracle():
         self.repair_types = repair_types
         self.additional_levels = set()
         if additional_levels:
-            self.additional_levels = set([repair_types[x.upper()] for x in additional_levels.split(",")])
+            self.additional_levels = {repair_types[x.upper()] for x in additional_levels.split(",")}
         self.deactivated_levels = set()
         if deactivated_levels:
-            self.deactivated_levels = set([repair_types[x.upper()] for x in deactivated_levels.split(",")])
+            self.deactivated_levels = {repair_types[x.upper()] for x in deactivated_levels.split(",")}
+
+        # Precompute allowed repair types for efficiency in fix_error
+        self._allowed_repair_types = [
+            repair_type for repair_type in self.repair_types
+            if repair_type.fn is not None
+            and (
+                (self.oracle_level is None)
+                or (
+                    repair_type.value <= self.oracle_level
+                    or repair_type in self.additional_levels
+                    or repair_type.debug
+                )
+            )
+            and (repair_type not in self.deactivated_levels)
+        ]
 
     def fix_error(self, pred_transition, model, state):
         """
@@ -141,14 +156,16 @@ class DynamicOracle():
         if gold_transition == pred_transition:
             return self.repair_types.CORRECT, None
 
-        for repair_type in self.repair_types:
-            if repair_type.fn is None:
-                continue
-            if self.oracle_level is not None and repair_type.value > self.oracle_level and repair_type not in self.additional_levels and not repair_type.debug:
-                continue
-            if repair_type in self.deactivated_levels:
-                continue
-            repair = repair_type.fn(gold_transition, pred_transition, state.gold_sequence, state.num_transitions, self.root_labels, model, state)
+        for repair_type in self._allowed_repair_types:
+            repair = repair_type.fn(
+                gold_transition,
+                pred_transition,
+                state.gold_sequence,
+                state.num_transitions,
+                self.root_labels,
+                model,
+                state
+            )
             if repair is None:
                 continue
 
@@ -156,7 +173,6 @@ class DynamicOracle():
                 return repair
 
             # TODO: could update all of the returns to be tuples of length 2
-            if repair is not None:
-                return repair_type, repair
+            return repair_type, repair
 
         return self.repair_types.UNKNOWN, None
