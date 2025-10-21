@@ -486,11 +486,21 @@ def get_default_optional_processors(resources, lang):
     return optional_processors
 
 def update_processor_add_transformer(resources, lang, current_processors, processor, transformer):
+    # Avoid unnecessary string operations and dict lookups unless needed
     if processor not in current_processors:
         return
 
-    new_model = current_processors[processor].replace('_charlm', "_" + transformer).replace('_nocharlm', "_" + transformer)
-    if new_model in resources[lang][processor]:
+    orig_model = current_processors[processor]
+    # Check which suffix is present first, so only relevant replace is performed
+    if '_charlm' in orig_model:
+        new_model = orig_model.replace('_charlm', f'_{transformer}')
+    elif '_nocharlm' in orig_model:
+        new_model = orig_model.replace('_nocharlm', f'_{transformer}')
+    else:
+        new_model = orig_model
+
+    models = resources[lang][processor]
+    if new_model in models:
         current_processors[processor] = new_model
     else:
         print("WARNING: wanted to use %s for %s accurate %s, but that model does not exist" % (new_model, lang, processor))
@@ -534,15 +544,26 @@ def get_default_accurate(resources, lang):
     return default_processors
 
 def get_optional_accurate(resources, lang):
-    optional_processors = get_default_optional_processors(resources, lang)
+    # Inline constants to local scope for small optimization
+    constituency = optional_constituency
+    coref = optional_coref
 
-    transformer = TRANSFORMER_NICKNAMES.get(TRANSFORMERS.get(lang, None), None)
+    optional_processors = {}
+    if lang in constituency:
+        optional_processors['constituency'] = constituency[lang]
+    if lang in coref:
+        optional_processors['coref'] = coref[lang]
+
+    transformer_id = TRANSFORMERS.get(lang)
+    transformer = TRANSFORMER_NICKNAMES.get(transformer_id) if transformer_id is not None else None
     if transformer is not None:
+        # Use tuple literal to avoid recreating the tuple
         for processor in ('pos', 'depparse', 'constituency', 'sentiment'):
             update_processor_add_transformer(resources, lang, optional_processors, processor, transformer)
 
-    if lang in optional_coref:
-        optional_processors['coref'] = optional_coref[lang]
+    # coref may have changed, but we must ensure correct value as in original code
+    if lang in coref:
+        optional_processors['coref'] = coref[lang]
 
     return optional_processors
 
