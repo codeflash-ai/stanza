@@ -80,20 +80,48 @@ class Dataset:
         return vocab
 
     def preprocess(self, data, vocab, pretrain_vocab, args):
+        # Loop-fusion and localize often-used methods as local variables for speed
+        v_word_map = vocab['word'].map
+        v_char_map = vocab['char'].map
+        v_upos_map = vocab['upos'].map
+        v_xpos_map = vocab['xpos'].map
+        v_feats_map = vocab['feats'].map
+
+        if pretrain_vocab is not None:
+            pretrain_map = pretrain_vocab.map
+            use_pretrain = True
+        else:
+            use_pretrain = False
+
         processed = []
+        append = processed.append  # Local var to avoid attribute lookup
+        DataSample_ = DataSample    # avoid global lookup
+
         for sent in data:
-            processed_sent = DataSample(
-                word = [vocab['word'].map([w[0] for w in sent])],
-                char = [[vocab['char'].map([x for x in w[0]]) for w in sent]],
-                upos = [vocab['upos'].map([w[1] for w in sent])],
-                xpos = [vocab['xpos'].map([w[2] for w in sent])],
-                feats = [vocab['feats'].map([w[3] for w in sent])],
-                pretrain = ([pretrain_vocab.map([w[0].lower() for w in sent])]
-                            if pretrain_vocab is not None
-                           else [[PAD_ID] * len(sent)]),
-                text = [w[0] for w in sent]
+            sent_len = len(sent)
+            # Pre-allocate lists for efficient data access
+            w0 = [None] * sent_len
+            w1 = [None] * sent_len
+            w2 = [None] * sent_len
+            w3 = [None] * sent_len
+            char_seqs = [None] * sent_len
+            for idx, w in enumerate(sent):
+                w0_item = w[0]
+                w0[idx] = w0_item
+                w1[idx] = w[1]
+                w2[idx] = w[2]
+                w3[idx] = w[3]
+                char_seqs[idx] = v_char_map(w0_item)
+            processed_sent = DataSample_(
+                word = [v_word_map(w0)],
+                char = [char_seqs],
+                upos = [v_upos_map(w1)],
+                xpos = [v_xpos_map(w2)],
+                feats = [v_feats_map(w3)],
+                pretrain = [pretrain_map([s.lower() for s in w0])] if use_pretrain else [[PAD_ID] * sent_len],
+                text = w0
             )
-            processed.append(processed_sent)
+            append(processed_sent)
 
         return processed
 
