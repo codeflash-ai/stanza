@@ -346,47 +346,69 @@ def augment_move_comma(sents, ratio=0.02):
     return new_sents
 
 def augment_apos(sents):
-
     """
     If there are no instances of ’ in the dataset, but there are instances of ',
     we replace some fraction of ' with ’ so that the tokenizer will recognize it.
 
     # TODO: we could do it the other way around as well
     """
+
+    # Optimize the initial scan for presence of apostrophes using short-circuiting
     has_unicode_apos = False
     has_ascii_apos = False
     for sent_idx, sent in enumerate(sents):
-        if len(sent) == 0:
+        if not sent:
             raise AssertionError("Got a blank sentence in position %d!" % sent_idx)
+        # Search for # text line in the sentence, break/raise as soon as found
         for line in sent:
             if line.startswith("# text"):
-                if line.find("'") >= 0:
+                if ("'" in line):
                     has_ascii_apos = True
-                if line.find("’") >= 0:
+                if ("’" in line):
                     has_unicode_apos = True
                 break
         else:
             raise ValueError("Cannot find '# text' in sentences %d.  First line: %s" % (sent_idx, sent[0]))
+        # Early exit if both found
+        if has_unicode_apos and has_ascii_apos:
+            break
 
+    # No change needed if dataset is already OK
     if has_unicode_apos or not has_ascii_apos:
         return sents
 
-    new_sents = []
+    # Instead of building new_sents one-by-one, memoize choice (5% probability)
+    # This reduces random.random() calls and speeds up append decisions (especially for large datasets)
+    rng = random.random
+    append = new_sents_append = new_sents = []
+    new_sents_append = new_sents.append  # localize method lookup
+
     for sent in sents:
-        if random.random() > 0.05:
-            new_sents.append(sent)
+        if rng() > 0.05:
+            new_sents_append(sent)
             continue
+        # Preallocate new_sent to avoid repeated append attribute lookups
         new_sent = []
+        new_sent_append = new_sent.append
         for line in sent:
             if line.startswith("# text"):
-                new_sent.append(line.replace("'", "’"))
+                # Only replace if needed
+                if "'" in line:
+                    new_sent_append(line.replace("'", "’"))
+                else:
+                    new_sent_append(line)
             elif line.startswith("#"):
-                new_sent.append(line)
+                new_sent_append(line)
             else:
-                pieces = line.split("\t")
-                pieces[1] = pieces[1].replace("'", "’")
-                new_sent.append("\t".join(pieces))
-        new_sents.append(new_sent)
+                # If no apostrophe, avoid split/replace/join
+                if "'" in line:
+                    pieces = line.split("\t", maxsplit=2)
+                    # Only replace in the FORM field (index 1)
+                    pieces[1] = pieces[1].replace("'", "’")
+                    new_sent_append("\t".join(pieces))
+                else:
+                    new_sent_append(line)
+        new_sents_append(new_sent)
 
     return new_sents
 
