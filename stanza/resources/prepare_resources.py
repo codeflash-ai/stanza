@@ -181,31 +181,34 @@ def get_pos_dependencies(lang, package):
     return dependencies
 
 def get_lemma_pretrain_package(lang, package):
-    package, uses_pretrain, uses_charlm = split_package(package)
-    if not uses_pretrain:
+    # Avoid unnecessary split_package call if dataset key won't be present
+    key = f"{lang}_{package}"
+    if key not in LEMMA_CLASSIFIER_DATASETS:
         return None
-    if not uses_charlm:
-        # currently the contextual lemma classifier is only active
-        # for the charlm lemmatizers
+    package_split, uses_pretrain, uses_charlm = split_package(package)
+    if not uses_pretrain or not uses_charlm:
         return None
-    if "%s_%s" % (lang, package) not in LEMMA_CLASSIFIER_DATASETS:
-        return None
-    return get_pretrain_package(lang, package, {}, default_pretrains)
+    # Since model_pretrains is {}, last elif will use default_pretrains
+    return get_pretrain_package(lang, package_split, {}, default_pretrains)
 
 def get_lemma_charlm_package(lang, package):
+    # Delegates to get_charlm_package, no optimization possible without changing behavior
     return get_charlm_package(lang, package, lemma_charlms, default_charlms)
 
 def get_lemma_dependencies(lang, package):
+    # Avoid double lookups/calls by holding intermediate results
     dependencies = []
-
     pretrain_package = get_lemma_pretrain_package(lang, package)
     if pretrain_package is not None:
         dependencies.append({'model': 'pretrain', 'package': pretrain_package})
 
     charlm_package = get_lemma_charlm_package(lang, package)
     if charlm_package is not None:
-        dependencies.append({'model': 'forward_charlm', 'package': charlm_package})
-        dependencies.append({'model': 'backward_charlm', 'package': charlm_package})
+        # Use a list extension to avoid multiple .append calls (micro-opt)
+        dependencies.extend([
+            {'model': 'forward_charlm', 'package': charlm_package},
+            {'model': 'backward_charlm', 'package': charlm_package}
+        ])
 
     return dependencies
 
