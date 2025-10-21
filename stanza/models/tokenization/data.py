@@ -14,13 +14,15 @@ logger = logging.getLogger('stanza')
 
 def filter_consecutive_whitespaces(para):
     filtered = []
-    for i, (char, label) in enumerate(para):
-        if i > 0:
-            if char == ' ' and para[i-1][0] == ' ':
+    prev_space = False
+    for char, label in para:
+        if char == ' ':
+            if prev_space:
                 continue
-
+            prev_space = True
+        else:
+            prev_space = False
         filtered.append((char, label))
-
     return filtered
 
 NEWLINE_WHITESPACE_RE = re.compile(r'\n\s*\n')
