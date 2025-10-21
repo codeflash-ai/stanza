@@ -114,8 +114,9 @@ def has_space_after_no(piece):
         return False
     if piece == "SpaceAfter=No":
         return True
-    tags = piece.split("|")
-    return any(t == "SpaceAfter=No" for t in tags)
+    if piece.startswith("SpaceAfter=No|") or piece.endswith("|SpaceAfter=No") or "|SpaceAfter=No|" in piece:
+        return True
+    return False
 
 
 def remove_space_after_no(piece, fail_if_missing=True):
