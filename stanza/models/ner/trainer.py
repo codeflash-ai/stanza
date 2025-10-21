@@ -21,8 +21,12 @@ logger = logging.getLogger('stanza')
 
 def unpack_batch(batch, device):
     """ Unpack a batch from the data loader. """
-    inputs = [batch[0]]
-    inputs += [b.to(device) if b is not None else None for b in batch[1:5]]
+    # Extract required fields by position to avoid list concatenations and for better readability/performance
+    b0 = batch[0]
+    b1 = batch[1]
+    b2 = batch[2]
+    b3 = batch[3]
+    b4 = batch[4]
     orig_idx = batch[5]
     word_orig_idx = batch[6]
     char_orig_idx = batch[7]
@@ -30,6 +34,16 @@ def unpack_batch(batch, device):
     wordlens = batch[9]
     charlens = batch[10]
     charoffsets = batch[11]
+
+    # Avoid intermediate lists and unnecessary list concatenations
+    inputs = [
+        b0,
+        b1.to(device) if b1 is not None else None,
+        b2.to(device) if b2 is not None else None,
+        b3.to(device) if b3 is not None else None,
+        b4.to(device) if b4 is not None else None,
+    ]
+    
     return inputs, orig_idx, word_orig_idx, char_orig_idx, sentlens, wordlens, charlens, charoffsets
 
 def fix_singleton_tags(tags):
