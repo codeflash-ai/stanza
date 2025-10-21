@@ -528,32 +528,45 @@ def change_indices(line, delta):
         return line
 
     pieces = line.split("\t")
-    if MWT_RE.match(pieces[0]):
-        indices = pieces[0].split("-")
-        pieces[0] = "%d-%d" % (int(indices[0]) + delta, int(indices[1]) + delta)
-        line = "\t".join(pieces)
-        return line
+    p0 = pieces[0]
 
-    if MWT_OR_COPY_RE.match(pieces[0]):
-        index_pieces = pieces[0].split(".", maxsplit=1)
-        pieces[0] = "%d.%s" % (int(index_pieces[0]) + delta, index_pieces[1])
-    elif not INT_RE.match(pieces[0]):
-        raise NotImplementedError("Unknown index type: %s" % pieces[0])
+    # Avoid repeated regex match calls by using if-elif-else
+    if MWT_RE.match(p0):
+        indices = p0.split("-")
+        p0_new0 = int(indices[0]) + delta
+        p0_new1 = int(indices[1]) + delta
+        pieces[0] = f"{p0_new0}-{p0_new1}"
+        return "\t".join(pieces)
+
+    if MWT_OR_COPY_RE.match(p0):
+        index_pieces = p0.split(".", 1)
+        pieces[0] = f"{int(index_pieces[0]) + delta}.{index_pieces[1]}"
+    elif not INT_RE.match(p0):
+        raise NotImplementedError(f"Unknown index type: {p0}")
     else:
-        pieces[0] = str(int(pieces[0]) + delta)
-    if pieces[6] != '_':
-        # copy nodes don't have basic dependencies in the es_ancora treebank
-        dep = int(pieces[6])
+        pieces[0] = str(int(p0) + delta)
+
+    # Process pieces[6] efficiently by minimizing int conversions
+    p6 = pieces[6]
+    if p6 != '_':
+        dep = int(p6)
         if dep != 0:
-            pieces[6] = str(int(dep) + delta)
-    if pieces[8] != '_':
-        dep_pieces = pieces[8].split(":", maxsplit=1)
-        if DIGIT_RE.search(dep_pieces[1]):
-            raise NotImplementedError("Need to handle multiple additional deps:\n%s" % line)
-        if int(dep_pieces[0]) != 0:
-            pieces[8] = str(int(dep_pieces[0]) + delta) + ":" + dep_pieces[1]
-    line = "\t".join(pieces)
-    return line
+            pieces[6] = str(dep + delta)
+
+    # Process pieces[8] efficiently
+    p8 = pieces[8]
+    if p8 != '_':
+        dep_pieces = p8.split(":", 1)
+        dep_id = dep_pieces[0]
+        dep_text = dep_pieces[1]
+        # Early check for digits in dep_text for error case
+        if DIGIT_RE.search(dep_text):
+            raise NotImplementedError(f"Need to handle multiple additional deps:\n{line}")
+        dep_id_int = int(dep_id)
+        if dep_id_int != 0:
+            pieces[8] = f"{dep_id_int + delta}:{dep_text}"
+
+    return "\t".join(pieces)
 
 def augment_initial_punct(sents, ratio=0.20):
     """
