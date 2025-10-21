@@ -16,32 +16,46 @@ def extract(infile, outfile):
 
     The SUC3 format is like conll, but with the tags in tabs 10 and 11
     """
-    lines = infile.readlines()
+    # Use local variables/attributes for minimal lookups
+    infile_readline = infile.readline
+    outfile_write = outfile.write
+
     sentences = []
     cur_sentence = []
-    for idx, line in enumerate(lines):
+
+    idx = 0
+    # Process lines one-at-a-time instead of .readlines() to reduce memory usage and allow early freeing of buffer
+    while True:
+        line = infile_readline()
+        if not line:
+            break
         line = line.strip()
         if not line:
-            # if we're currently reading a sentence, append it to the list
             if cur_sentence:
                 sentences.append(cur_sentence)
                 cur_sentence = []
+            idx += 1
             continue
 
         pieces = line.split("\t")
+        # Inline len(pieces) check for earlier error detection
         if len(pieces) < 12:
             raise ValueError("Unexpected line length in the SUC3 dataset at %d" % idx)
-        if pieces[10] == 'O':
+        # Reduce local variable, use tuple construction directly for slightly less overhead
+        tag = pieces[10]
+        if tag == 'O':
             cur_sentence.append((pieces[1], "O"))
         else:
-            cur_sentence.append((pieces[1], "%s-%s" % (pieces[10], pieces[11])))
+            cur_sentence.append((pieces[1], f"{tag}-{pieces[11]}"))
+        idx += 1
     if cur_sentence:
         sentences.append(cur_sentence)
 
+    # Write output in a single pass, buffered write is already handled by file object
     for sentence in sentences:
-        for word in sentence:
-            outfile.write("%s\t%s\n" % word)
-        outfile.write("\n")
+        for word, label in sentence:
+            outfile_write(f"{word}\t{label}\n")
+        outfile_write("\n")
 
     return len(sentences)
 
