@@ -46,7 +46,7 @@ def randomize_lengths_range(range_list):
     """
     Range of lengths for random samples
     """
-    range_boundaries = [int(x) for x in range_list.split(",")]
+    range_boundaries = list(map(int, range_list.split(",")))
     assert range_boundaries[0] < range_boundaries[1], f"Invalid range: ({range_boundaries[0]}, {range_boundaries[1]})"
     return range_boundaries
 
