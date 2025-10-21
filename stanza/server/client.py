@@ -770,7 +770,7 @@ def regex_matches_to_indexed_words(matches):
     :param matches: unprocessed regex matches
     :return: flat array of indexed words
     """
-    words = [dict(v, **dict([('sentence', i)]))
+    words = [dict(v, sentence=i)
              for i, s in enumerate(matches['sentences'])
              for k, v in s.items() if k != 'length']
     return words
