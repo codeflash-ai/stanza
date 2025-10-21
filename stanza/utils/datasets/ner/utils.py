@@ -369,45 +369,47 @@ def list_doc_entities(doc):
     Should work on both BIOES and BIO
     """
     entities = []
+    append_entity = entities.append
     for sentence in doc.sentences:
         current_entity = []
         previous_label = None
         for token in sentence.tokens:
-            if token.ner == 'O' or token.ner.startswith("E-"):
-                if token.ner.startswith("E-"):
+            ner = token.ner
+            if ner == 'O' or ner[:2] == 'E-':
+                if ner[:2] == 'E-':
                     current_entity.append(token.text)
                 if current_entity:
                     assert previous_label is not None
-                    entities.append((current_entity, previous_label))
+                    append_entity((current_entity, previous_label))
                     current_entity = []
                     previous_label = None
-            elif token.ner.startswith("I-"):
-                if previous_label is not None and previous_label != 'O' and previous_label != token.ner[2:]:
+            elif ner[:2] == 'I-':
+                if previous_label is not None and previous_label != 'O' and previous_label != ner[2:]:
                     if current_entity:
                         assert previous_label is not None
-                        entities.append((current_entity, previous_label))
+                        append_entity((current_entity, previous_label))
                         current_entity = []
-                        previous_label = token.ner[2:]
+                        previous_label = ner[2:]
                 current_entity.append(token.text)
-            elif token.ner.startswith("B-") or token.ner.startswith("S-"):
+            elif ner[:2] == 'B-' or ner[:2] == 'S-':
                 if current_entity:
                     assert previous_label is not None
-                    entities.append((current_entity, previous_label))
+                    append_entity((current_entity, previous_label))
                     current_entity = []
                     previous_label = None
                 current_entity.append(token.text)
-                previous_label = token.ner[2:]
-                if token.ner.startswith("S-"):
+                previous_label = ner[2:]
+                if ner[:2] == 'S-':
                     assert previous_label is not None
                     entities.append(current_entity)
                     current_entity = []
                     previous_label = None
             else:
                 raise RuntimeError("Expected BIO(ES) format in the json file!")
-            previous_label = token.ner[2:]
+            previous_label = ner[2:]
         if current_entity:
             assert previous_label is not None
-            entities.append((current_entity, previous_label))
+            append_entity((current_entity, previous_label))
     entities = [(tuple(x[0]), x[1]) for x in entities]
     return entities
 
