@@ -377,13 +377,15 @@ class EnsembleTrainer(BaseTrainer):
         return EnsembleTrainer(ensemble)
 
     def get_peft_params(self):
-        params = []
-        for model in self.model.models:
+        params = [None] * len(self.model.models)
+        peft_imported = False
+        
+        for i, model in enumerate(self.model.models):
             if model.args.get('use_peft', False):
-                from peft import get_peft_model_state_dict
-                params.append(get_peft_model_state_dict(model.bert_model, adapter_name=model.peft_name))
-            else:
-                params.append(None)
+                if not peft_imported:
+                    from peft import get_peft_model_state_dict
+                    peft_imported = True
+                params[i] = get_peft_model_state_dict(model.bert_model, adapter_name=model.peft_name)
 
         return params
 
