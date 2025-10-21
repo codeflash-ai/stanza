@@ -16,7 +16,7 @@ def add_lemma_args(parser):
                         help='Model type to use.  {}'.format(", ".join(x.name for x in ModelType)))
 
 def build_model_filename(paths, short_name, command_args, extra_args):
-    return os.path.join("saved_models", "lemma_classifier", short_name + "_lemma_classifier.pt")
+    return f"saved_models/lemma_classifier/{short_name}_lemma_classifier.pt"
 
 def run_treebank(mode, paths, treebank, short_name, command_args, extra_args):
     short_language, dataset = short_name.split("_", 1)
