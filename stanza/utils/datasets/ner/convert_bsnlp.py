@@ -7,6 +7,21 @@ import re
 
 import stanza
 
+_typo_pairs = {
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_202.txt is not exactly a typo, but the word is mixed cyrillic and ascii characters
+    'brexit_bg.txt_file_202.txt':  ('Вlооmbеrg', 'Bloomberg'),
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_261.txt has a typo: Telegaph instead of Telegraph
+    'brexit_bg.txt_file_261.txt':  ('Telegaph', 'Telegraph'),
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_574.txt has a typo: politicalskrapbook instead of politicalscrapbook
+    'brexit_bg.txt_file_574.txt':  ('politicalskrapbook', 'politicalscrapbook'),
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_861.txt has a mix of cyrillic and ascii
+    'brexit_bg.txt_file_861.txt':  ('Съвета „Общи въпроси“', 'Съветa "Общи въпроси"'),
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_992.txt is not exactly a typo, but the word is mixed cyrillic and ascii characters
+    'brexit_bg.txt_file_992.txt':  ('The Guardiаn', 'The Guardian'),
+    # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_1856.txt has a typo: Southerb instead of Southern
+    'brexit_bg.txt_file_1856.txt': ('Southerb', 'Southern'),
+}
+
 logger = logging.getLogger('stanza')
 
 AVAILABLE_LANGUAGES = ("bg", "cs", "pl", "ru")
@@ -110,26 +125,10 @@ def normalize_bg_entity(text, entity, raw):
     logger.error("Could not find '%s' in %s" % (entity, raw))
 
 def fix_bg_typos(text, raw_filename):
-    typo_pairs = {
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_202.txt is not exactly a typo, but the word is mixed cyrillic and ascii characters
-        'brexit_bg.txt_file_202.txt':  ('Вlооmbеrg', 'Bloomberg'),
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_261.txt has a typo: Telegaph instead of Telegraph
-        'brexit_bg.txt_file_261.txt':  ('Telegaph', 'Telegraph'),
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_574.txt has a typo: politicalskrapbook instead of politicalscrapbook
-        'brexit_bg.txt_file_574.txt':  ('politicalskrapbook', 'politicalscrapbook'),
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_861.txt has a mix of cyrillic and ascii
-        'brexit_bg.txt_file_861.txt':  ('Съвета „Общи въпроси“', 'Съветa "Общи въпроси"'),
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_992.txt is not exactly a typo, but the word is mixed cyrillic and ascii characters
-        'brexit_bg.txt_file_992.txt':  ('The Guardiаn', 'The Guardian'),
-        # training_pl_cs_ru_bg_rc1/raw/bg/brexit_bg.txt_file_1856.txt has a typo: Southerb instead of Southern
-        'brexit_bg.txt_file_1856.txt': ('Southerb', 'Southern'),
-    }
-
-    filename = os.path.split(raw_filename)[1]
-    if filename in typo_pairs:
-        replacement = typo_pairs.get(filename)
+    filename = raw_filename.rsplit(os.sep, 1)[-1]  # Faster than os.path.split for extracting filename
+    if filename in _typo_pairs:
+        replacement = _typo_pairs[filename]
         text = text.replace(replacement[0], replacement[1])
-
     return text
 
 def get_sentences(language, pipeline, annotated, raw):
