@@ -86,6 +86,111 @@ from stanza.utils.conll import CoNLL
 from stanza.utils.datasets.constituency.utils import SHARDS, write_dataset
 import stanza.utils.default_paths as default_paths
 
+PIECE_MAPPING = {
+    "agn-/ter'":               "(agn ter)",
+    "cong-'&'":                "(cong &)",
+    "da_riempire-'...'":       "(da_riempire ...)",
+    "date-1992_1993":          "(date 1992/1993)",
+    "date-'31-12-95'":         "(date 31-12-95)",
+    "date-'novantaquattro-95'":"(date novantaquattro-95)",
+    "date-'novantaquattro-95": "(date novantaquattro-95)",
+    "date-'novantaquattro-novantacinque'": "(date novantaquattro-novantacinque)",
+    "dirs-':'":                "(dirs :)",
+    "dirs-'\"'":               "(dirs \")",
+    "mw-'&'":                  "(mw &)",
+    "mw-'Presunto'":           "(mw Presunto)",
+    "nh-'Alain-Gauze'":        "(nh Alain-Gauze)",
+    "np-'porto_Marghera'":     "(np Porto) (np Marghera)",
+    "np-'roma-l_aquila'":      "(np Roma-L'Aquila)",
+    "np-'L_Aquila-Villa_Vomano'": "(np L'Aquila) (np -) (np Villa) (np Vomano)",
+    "npro-'Avanti_!'":         "(npro Avanti_!)",
+    "npro-'Viacom-Paramount'": "(npro Viacom-Paramount)",
+    "npro-'Rhone-Poulenc'":    "(npro Rhone-Poulenc)",
+    "npro-'Itar-Tass'":        "(npro Itar-Tass)",
+    "par-(-)":                 "(par -)",
+    "par-','":                 "(par ,)",
+    "par-'<'":                 "(par <)",
+    "par-'>'":                 "(par >)",
+    "par-'-'":                 "(par -)",
+    "par-'\"'":                "(par \")",
+    "par-'('":                 "(par -LRB-)",
+    "par-')'":                 "(par -RRB-)",
+    "par-'&&'":                "(par &&)",
+    "punt-','":                "(punt ,)",
+    "punt-'-'":                "(punt -)",
+    "punt-';'":                "(punt ;)",
+    "punto-':'":               "(punto :)",
+    "punto-';'":               "(punto ;)",
+    "puntint-'!'":             "(puntint !)",
+    "puntint-'?'":             "(puntint !)",
+    "num-'2plus2'":            "(num 2+2)",
+    "num-/bis'":               "(num bis)",
+    "num-/ter'":               "(num ter)",
+    "num-18_00/1_00":          "(num 18:00/1:00)",
+    "num-1/500_2/000":         "(num 1.500-2.000)",
+    "num-16_1":                "(num 16,1)",
+    "num-0_1":                 "(num 0,1)",
+    "num-0_3":                 "(num 0,3)",
+    "num-2_7":                 "(num 2,7)",
+    "num-455_68":              "(num 455/68)",
+    "num-437_5":               "(num 437,5)",
+    "num-4708_82":             "(num 4708,82)",
+    "num-16EQ517_7":           "(num 16EQ517/7)",
+    "num-2=184_90":            "(num 2=184/90)",
+    "num-3EQ429_20":           "(num 3eq429/20)",
+    "num-'1990-EQU-100'":      "(num 1990-EQU-100)",
+    "num-'500-EQU-250'":       "(num 500-EQU-250)",
+    "num-0_39%minus":          "(num 0,39) (num %%) (num -)",
+    "num-1_88/76":             "(num 1-88/76)",
+    "num-'70/80'":             "(num 70,80)",
+    "num-'18/20'":             "(num 18:20)",
+    "num-295/mila'":           "(num 295mila)",
+    "num-'295/mila'":          "(num 295mila)",
+    "num-0/07%plus":           "(num 0,07) (num %%) (num plus)",
+    "num-0/69%minus":          "(num 0,69) (num %%) (num minus)",
+    "num-0_39%minus":          "(num 0,39) (num %%) (num minus)",
+    "num-9_11/16":             "(num 9-11,16)",
+    "num-2/184_90":            "(num 2=184/90)",
+    "num-3/429_20":            "(num 3eq429/20)",
+    "num-1:28_124":            "(num 1=8/1242)",
+    "num-1:28_397":            "(num 1=8/3972)",
+    "num-1:28_947":            "(num 1=8/9472)",
+    "num-1:29_657":            "(num 1=9/6572)",
+    "num-1:29_867":            "(num 1=9/8672)",
+    "num-1:29_874":            "(num 1=9/8742)",
+    "num-1:30_083":            "(num 1=0/0833)",
+    "num-1:30_140":            "(num 1=0/1403)",
+    "num-1:30_354":            "(num 1=0/3543)",
+    "num-1:30_453":            "(num 1=0/4533)",
+    "num-1:30_946":            "(num 1=0/9463)",
+    "num-1:31_602":            "(num 1=1/6023)",
+    "num-1:31_842":            "(num 1=1/8423)",
+    "num-1:32_087":            "(num 1=2/0873)",
+    "num-1:32_259":            "(num 1=2/2593)",
+    "num-1:33_166":            "(num 1=3/1663)",
+    "num-1:34_154":            "(num 1=4/1543)",
+    "num-1:34_556":            "(num 1=4/5563)",
+    "num-1:35_323":            "(num 1=5/3233)",
+    "num-1:36_023":            "(num 1=6/0233)",
+    "num-1:36_076":            "(num 1=6/0763)",
+    "num-1:36_651":            "(num 1=6/6513)",
+    "n-giga_flop/s":           "(n giga_flop/s)",
+    "sect-'g-1'":              "(sect g-1)",
+    "sect-'h-1'":              "(sect h-1)",
+    "sect-'h-2'":              "(sect h-2)",
+    "sect-'h-3'":              "(sect h-3)",
+    "abbr-'a-b-c'":            "(abbr a-b-c)",
+    "abbr-d_o_a_":             "(abbr DOA)",
+    "abbr-d_l_":               "(abbr DL)",
+    "abbr-i_s_e_f_":           "(abbr ISEF)",
+    "abbr-d_p_r_":             "(abbr DPR)",
+    "abbr-D_P_R_":             "(abbr DPR)",
+    "abbr-d_m_":               "(abbr dm)",
+    "abbr-T_U_":               "(abbr TU)",
+    "abbr-F_A_M_E_":           "(abbr Fame)",
+    "dots-'...'":              "(dots ...)",
+}
+
 def read_constituency_sentences(fin):
     """
     Reads the lines from the constituency treebank and splits into ID, text
@@ -133,181 +238,92 @@ def raw_tree(text):
     Non-preterminal nodes have tags, followed by the stuff under the node, -[
     The node is closed by the ]
     """
+    # Local rebinding for hot methods and vars
+    split_open = text.split
+    strip = str.strip
+    split_close = CLOSE.split
+    get_piece_map = PIECE_MAPPING.get
+
     pieces = []
-    open_pieces = text.split(OPEN)
+    open_pieces = split_open(OPEN)
+
     for open_idx, open_piece in enumerate(open_pieces):
         if open_idx > 0:
             pieces[-1] = pieces[-1] + OPEN
-        open_piece = open_piece.strip()
+
+        open_piece = strip(open_piece)
         if not open_piece:
             raise ValueError("Unexpected empty node!")
+
         close_pieces = open_piece.split(CLOSE)
         for close_idx, close_piece in enumerate(close_pieces):
             if close_idx > 0:
                 pieces.append(CLOSE)
-            close_piece = close_piece.strip()
+            close_piece = strip(close_piece)
             if not close_piece:
                 # this is okay - multiple closes at the end of a deep bracket
                 continue
+            # Add word pieces with less list creation
             word_pieces = close_piece.split(", ")
-            pieces.extend([x.strip() for x in word_pieces if x.strip()])
+            pieces.extend(x for x in map(strip, word_pieces) if x)
 
-    # at this point, pieces is a list with:
-    #   tag-[     for opens
-    #   tag-word  for words
-    #   ]         for closes
-    # this structure converts pretty well to reading using the tree reader
-
-    PIECE_MAPPING = {
-        "agn-/ter'":               "(agn ter)",
-        "cong-'&'":                "(cong &)",
-        "da_riempire-'...'":       "(da_riempire ...)",
-        "date-1992_1993":          "(date 1992/1993)",
-        "date-'31-12-95'":         "(date 31-12-95)",
-        "date-'novantaquattro-95'":"(date novantaquattro-95)",
-        "date-'novantaquattro-95": "(date novantaquattro-95)",
-        "date-'novantaquattro-novantacinque'": "(date novantaquattro-novantacinque)",
-        "dirs-':'":                "(dirs :)",
-        "dirs-'\"'":               "(dirs \")",
-        "mw-'&'":                  "(mw &)",
-        "mw-'Presunto'":           "(mw Presunto)",
-        "nh-'Alain-Gauze'":        "(nh Alain-Gauze)",
-        "np-'porto_Marghera'":     "(np Porto) (np Marghera)",
-        "np-'roma-l_aquila'":      "(np Roma-L'Aquila)",
-        "np-'L_Aquila-Villa_Vomano'": "(np L'Aquila) (np -) (np Villa) (np Vomano)",
-        "npro-'Avanti_!'":         "(npro Avanti_!)",
-        "npro-'Viacom-Paramount'": "(npro Viacom-Paramount)",
-        "npro-'Rhone-Poulenc'":    "(npro Rhone-Poulenc)",
-        "npro-'Itar-Tass'":        "(npro Itar-Tass)",
-        "par-(-)":                 "(par -)",
-        "par-','":                 "(par ,)",
-        "par-'<'":                 "(par <)",
-        "par-'>'":                 "(par >)",
-        "par-'-'":                 "(par -)",
-        "par-'\"'":                "(par \")",
-        "par-'('":                 "(par -LRB-)",
-        "par-')'":                 "(par -RRB-)",
-        "par-'&&'":                "(par &&)",
-        "punt-','":                "(punt ,)",
-        "punt-'-'":                "(punt -)",
-        "punt-';'":                "(punt ;)",
-        "punto-':'":               "(punto :)",
-        "punto-';'":               "(punto ;)",
-        "puntint-'!'":             "(puntint !)",
-        "puntint-'?'":             "(puntint !)",
-        "num-'2plus2'":            "(num 2+2)",
-        "num-/bis'":               "(num bis)",
-        "num-/ter'":               "(num ter)",
-        "num-18_00/1_00":          "(num 18:00/1:00)",
-        "num-1/500_2/000":         "(num 1.500-2.000)",
-        "num-16_1":                "(num 16,1)",
-        "num-0_1":                 "(num 0,1)",
-        "num-0_3":                 "(num 0,3)",
-        "num-2_7":                 "(num 2,7)",
-        "num-455_68":              "(num 455/68)",
-        "num-437_5":               "(num 437,5)",
-        "num-4708_82":             "(num 4708,82)",
-        "num-16EQ517_7":           "(num 16EQ517/7)",
-        "num-2=184_90":            "(num 2=184/90)",
-        "num-3EQ429_20":           "(num 3eq429/20)",
-        "num-'1990-EQU-100'":      "(num 1990-EQU-100)",
-        "num-'500-EQU-250'":       "(num 500-EQU-250)",
-        "num-0_39%minus":          "(num 0,39) (num %%) (num -)",
-        "num-1_88/76":             "(num 1-88/76)",
-        "num-'70/80'":             "(num 70,80)",
-        "num-'18/20'":             "(num 18:20)",
-        "num-295/mila'":           "(num 295mila)",
-        "num-'295/mila'":          "(num 295mila)",
-        "num-0/07%plus":           "(num 0,07) (num %%) (num plus)",
-        "num-0/69%minus":          "(num 0,69) (num %%) (num minus)",
-        "num-0_39%minus":          "(num 0,39) (num %%) (num minus)",
-        "num-9_11/16":             "(num 9-11,16)",
-        "num-2/184_90":            "(num 2=184/90)",
-        "num-3/429_20":            "(num 3eq429/20)",
-        # TODO: remove the following num conversions if possible
-        # this would require editing either constituency or UD
-        "num-1:28_124":            "(num 1=8/1242)",
-        "num-1:28_397":            "(num 1=8/3972)",
-        "num-1:28_947":            "(num 1=8/9472)",
-        "num-1:29_657":            "(num 1=9/6572)",
-        "num-1:29_867":            "(num 1=9/8672)",
-        "num-1:29_874":            "(num 1=9/8742)",
-        "num-1:30_083":            "(num 1=0/0833)",
-        "num-1:30_140":            "(num 1=0/1403)",
-        "num-1:30_354":            "(num 1=0/3543)",
-        "num-1:30_453":            "(num 1=0/4533)",
-        "num-1:30_946":            "(num 1=0/9463)",
-        "num-1:31_602":            "(num 1=1/6023)",
-        "num-1:31_842":            "(num 1=1/8423)",
-        "num-1:32_087":            "(num 1=2/0873)",
-        "num-1:32_259":            "(num 1=2/2593)",
-        "num-1:33_166":            "(num 1=3/1663)",
-        "num-1:34_154":            "(num 1=4/1543)",
-        "num-1:34_556":            "(num 1=4/5563)",
-        "num-1:35_323":            "(num 1=5/3233)",
-        "num-1:36_023":            "(num 1=6/0233)",
-        "num-1:36_076":            "(num 1=6/0763)",
-        "num-1:36_651":            "(num 1=6/6513)",
-        "n-giga_flop/s":           "(n giga_flop/s)",
-        "sect-'g-1'":              "(sect g-1)",
-        "sect-'h-1'":              "(sect h-1)",
-        "sect-'h-2'":              "(sect h-2)",
-        "sect-'h-3'":              "(sect h-3)",
-        "abbr-'a-b-c'":            "(abbr a-b-c)",
-        "abbr-d_o_a_":             "(abbr DOA)",
-        "abbr-d_l_":               "(abbr DL)",
-        "abbr-i_s_e_f_":           "(abbr ISEF)",
-        "abbr-d_p_r_":             "(abbr DPR)",
-        "abbr-D_P_R_":             "(abbr DPR)",
-        "abbr-d_m_":               "(abbr dm)",
-        "abbr-T_U_":               "(abbr TU)",
-        "abbr-F_A_M_E_":           "(abbr Fame)",
-        "dots-'...'":              "(dots ...)",
-    }
     new_pieces = ["(ROOT "]
+    OPEN_LEN = len(OPEN)
+    find_quote = "'"
+    find_paren1 = "("
+    find_paren2 = ")"
+
+    # Cache regex match functions
+    date_re_match = DATE_RE.match
+    int_pct_match = INTEGER_PERCENT_RE.match
+    rng_pct_match = RANGE_PERCENT_RE.match
+    dec_pct_match = DECIMAL_PERCENT_RE.match
+    dec_re_match = DECIMAL_RE.match
+
     for piece in pieces:
         if piece.endswith(OPEN):
-            new_pieces.append("(" + piece[:-2])
+            new_pieces.append("(" + piece[:-OPEN_LEN])
         elif piece == CLOSE:
             new_pieces.append(")")
-        elif piece in PIECE_MAPPING:
-            new_pieces.append(PIECE_MAPPING[piece])
         else:
-            # maxsplit=1 because of words like 1990-EQU-100
-            tag, word = piece.split("-", maxsplit=1)
-            if word.find("'") >= 0 or word.find("(") >= 0 or word.find(")") >= 0:
-                raise ValueError("Unhandled weird node: {}".format(piece))
-            if word.endswith("_"):
-                word = word[:-1] + "'"
-            date_match = DATE_RE.match(word)
-            if date_match:
-                # 10_30 special case sent_07072
-                # 16_30 special case sent_07098
-                # 21_15 special case sent_07099 and others
-                word = date_match.group(1) + ":" + date_match.group(2)
-            integer_percent = INTEGER_PERCENT_RE.match(word)
-            if integer_percent:
-                word = integer_percent.group(1) + "_%%"
-            range_percent = RANGE_PERCENT_RE.match(word)
-            if range_percent:
-                word = range_percent.group(1) + "," + range_percent.group(2) + "_%%"
-            percent = DECIMAL_PERCENT_RE.match(word)
-            if percent:
-                word = percent.group(1) + "," + percent.group(2) + "_%%"
-            decimal = DECIMAL_RE.match(word)
-            if decimal:
-                word = decimal.group(1) + "," + decimal.group(2)
-            # there are words which are multiple words mashed together
-            # with _ for some reason
-            # also, words which end in ' are replaced with _
-            # fortunately, no words seem to have both
-            # splitting like this means the tags are likely wrong,
-            # but the conparser needs to retag anyway, so it shouldn't matter
-            word_pieces = word.split("_")
-            for word_piece in word_pieces:
-                new_pieces.append("(%s %s)" % (tag, word_piece))
-    new_pieces.append(")")
+            mapped = get_piece_map(piece)
+            if mapped is not None:
+                new_pieces.append(mapped)
+            else:
+                # maxsplit=1 because of words like 1990-EQU-100
+                tag, word = piece.split("-", maxsplit=1)
+                if (find_quote in word) or (find_paren1 in word) or (find_paren2 in word):
+                    raise ValueError("Unhandled weird node: {}".format(piece))
+                if word.endswith("_"):
+                    word = word[:-1] + "'"
 
+                # Try regexes only if likely matching
+                date_match = date_re_match(word)
+                if date_match:
+                    word = f"{date_match.group(1)}:{date_match.group(2)}"
+                else:
+                    integer_percent = int_pct_match(word)
+                    if integer_percent:
+                        word = integer_percent.group(1) + "_%%"
+                    else:
+                        range_percent = rng_pct_match(word)
+                        if range_percent:
+                            word = range_percent.group(1) + "," + range_percent.group(2) + "_%%"
+                        else:
+                            percent = dec_pct_match(word)
+                            if percent:
+                                word = percent.group(1) + "," + percent.group(2) + "_%%"
+                            else:
+                                decimal = dec_re_match(word)
+                                if decimal:
+                                    word = decimal.group(1) + "," + decimal.group(2)
+
+                # Handle multiword _ joins as before
+                word_pieces = word.split("_")
+                for word_piece in word_pieces:
+                    new_pieces.append(f"({tag} {word_piece})")
+
+    new_pieces.append(")")
     text = " ".join(new_pieces)
     trees = read_trees(text)
     if len(trees) > 1:
