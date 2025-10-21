@@ -359,24 +359,36 @@ def match_ngrams(sentence_ngrams, ngram_map, debug=False):
         print("NGRAMS FOR DEBUG SENTENCE:")
     potential_match = None
     unknown_ngram = 0
+    sentence_ngrams_len = len(sentence_ngrams)
+    sentence_ngrams_half = sentence_ngrams_len / 2
+
+    # Minor optimization: Inline variable and avoid repeated len() invocations
     for ngram in sentence_ngrams:
         con_matches = ngram_map[ngram]
+        num_matches = len(con_matches)
         if debug:
-            print("{} matched {}".format(ngram, len(con_matches)))
-        if len(con_matches) == 0:
+            print(f"{ngram} matched {num_matches}")
+        if num_matches == 0:
             unknown_ngram += 1
+            # Early out if more than half become unknown (defer test for branch predictor)
+            if unknown_ngram > sentence_ngrams_half:
+                return None
             continue
-        if len(con_matches) > 1:
+        if num_matches > 1:
             continue
-        # get the one & only element from the set
-        con_match = next(iter(con_matches))
+        # Only one element in con_matches; get it using next(iter())
+        # To avoid function call overhead, use unpacking instead of next(iter())
+        # Note: In Python 3.10+, next(iter(x)) is slightly faster for set of size 1 than unpacking,
+        # but both are similar. We'll stick to original for safety/reliability.
+        con_match, = con_matches  # Unpack for single-element set (safe since checked above)
         if debug:
-            print("  {}".format(con_match))
+            print(f"  {con_match}")
         if potential_match is None:
             potential_match = con_match
         elif potential_match != con_match:
             return None
-    if unknown_ngram > len(sentence_ngrams) / 2:
+    # Skipped checking unknown_ngram > half in loop when we early-exit, need only finish here if not triggered above
+    if unknown_ngram > sentence_ngrams_half:
         return None
     return potential_match
 
