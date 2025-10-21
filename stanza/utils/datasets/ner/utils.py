@@ -81,12 +81,7 @@ def get_tags(datasets):
 
     datasets is expected to be train, dev, test but could be any list
     """
-    tags = set()
-    for dataset in datasets:
-        for sentence in dataset:
-            for word, tag in sentence:
-                tags.add(tag)
-    return tags
+    return {tag for dataset in datasets for sentence in dataset for word, tag in sentence}
 
 def write_sentences(output_filename, dataset):
     """
