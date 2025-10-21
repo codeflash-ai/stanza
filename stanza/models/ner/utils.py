@@ -229,7 +229,7 @@ def decode_from_bioes(tags):
     cur_type = None
 
     def flush():
-        if len(ent_idxs) > 0:
+        if ent_idxs:
             res.append({
                 'start': ent_idxs[0], 
                 'end': ent_idxs[-1], 
