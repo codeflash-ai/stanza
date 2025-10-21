@@ -59,10 +59,8 @@ class BaseVocab:
 
     def unit2id(self, unit):
         unit = self.normalize_unit(unit)
-        if unit in self._unit2id:
-            return self._unit2id[unit]
-        else:
-            return self._unit2id[UNK]
+        # Direct lookup in dict is O(1)
+        return self._unit2id.get(unit, self._unit2id[UNK])
 
     def id2unit(self, id):
         return self._id2unit[id]
