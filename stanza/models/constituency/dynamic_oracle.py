@@ -65,9 +65,10 @@ def advance_past_constituents(gold_sequence, cur_index):
     """
     count = 0
     while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
+        item = gold_sequence[cur_index]
+        if type(item) is OpenConstituent:
             count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
+        elif type(item) is CloseConstituent:
             count = count - 1
             if count == -1: return cur_index
         cur_index = cur_index + 1
