@@ -28,36 +28,47 @@ class Dataset:
         self.sort_during_eval = sort_during_eval
         self.doc = doc
 
-        if vocab is None:
-            self.vocab = Dataset.init_vocab([doc], args)
-        else:
-            self.vocab = vocab
+        # Only call init_vocab if needed (potentially expensive).
+        self.vocab = vocab if vocab is not None else Dataset.init_vocab([doc], args)
 
-        self.has_upos = not all(x is None or x == '_' for x in doc.get(UPOS, as_sentences=False))
-        self.has_xpos = not all(x is None or x == '_' for x in doc.get(XPOS, as_sentences=False))
-        self.has_feats = not all(x is None or x == '_' for x in doc.get(FEATS, as_sentences=False))
+        # Efficient batch check for UPOS, XPOS, FEATS using next and generator expressions.
+        upos_seq = doc.get(UPOS, as_sentences=False)
+        self.has_upos = next((False for x in upos_seq if x is None or x == '_'), True)
+
+        xpos_seq = doc.get(XPOS, as_sentences=False)
+        self.has_xpos = next((False for x in xpos_seq if x is None or x == '_'), True)
+
+        feats_seq = doc.get(FEATS, as_sentences=False)
+        self.has_feats = next((False for x in feats_seq if x is None or x == '_'), True)
 
         data = self.load_doc(self.doc)
-        # filter out the long sentences if bert is used
-        if self.args.get('bert_model', None) and needs_length_filter(self.args['bert_model']):
-            data = filter_data(self.args['bert_model'], data, bert_tokenizer)
+        # Filter out the long sentences if bert is used.
+        bert_model_name = self.args.get('bert_model', None)
+        if bert_model_name and needs_length_filter(bert_model_name):
+            # Pass bert_tokenizer only if it's not None to avoid overhead in downstream call.
+            data = filter_data(bert_model_name, data, bert_tokenizer if bert_tokenizer is not None else None)
 
-        # handle pretrain; pretrain vocab is used when args['pretrain'] == True and pretrain is not None
+        # Pretrain vocab logic, preserved as before.
         self.pretrain_vocab = None
         if pretrain is not None and args['pretrain']:
             self.pretrain_vocab = pretrain.vocab
 
-        # filter and sample data
-        if args.get('sample_train', 1.0) < 1.0 and not self.eval:
-            keep = int(args['sample_train'] * len(data))
+        # Subsample train set if requested (preserve random.sample as-is for behavioral/seed consistency).
+        sample_rate = args.get('sample_train', 1.0)
+        if sample_rate < 1.0 and not self.eval:
+            keep = int(sample_rate * len(data))
             data = random.sample(data, keep)
-            logger.debug("Subsample training set with rate {:g}".format(args['sample_train']))
+            logger.debug("Subsample training set with rate {:g}".format(sample_rate))
 
+        # Preprocessing: batch operation, kept as-is for internal consistency.
         data = self.preprocess(data, self.vocab, self.pretrain_vocab, args)
 
+        # Store processed data.
         self.data = data
 
+        # Cache num_examples for fast __len__ retrieval.
         self.num_examples = len(data)
+        # Cache punct_tags result.
         self.__punct_tags = self.vocab["upos"].map(["PUNCT"])
         self.augment_nopunct = self.args.get("augment_nopunct", 0.0)
 
@@ -98,7 +109,8 @@ class Dataset:
         return processed
 
     def __len__(self):
-        return len(self.data)
+        # Use cached num_examples for maximum speed.
+        return self.num_examples
 
     def __mask(self, upos):
         """Returns a torch boolean about which elements should be masked out"""
