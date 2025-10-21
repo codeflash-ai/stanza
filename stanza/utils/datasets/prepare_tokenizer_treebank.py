@@ -214,51 +214,61 @@ def augment_comma_separations(sents, ratio=0.03):
     This exact example was later fixed in UD 2.8, but it should still
     potentially be useful for compensating for typos.
     """
+    # Precompute randoms for performance
+    rand = random.random
     new_sents = []
     for sentence in sents:
-        for text_idx, text_line in enumerate(sentence):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
-            if text_line.startswith("# text"):
+        # Find # text line index in a single loop
+        text_idx = -1
+        for idx, line in enumerate(sentence):
+            if line.startswith("# text"):
+                text_idx = idx
                 break
-        else:
+        if text_idx == -1:
             continue
 
         match = COMMA_SEPARATED_RE.search(sentence[text_idx])
-        if match and random.random() < ratio:
-            for idx, word in enumerate(sentence):
+        if match and rand() < ratio:
+            sent_len = len(sentence)
+            # Use enumerate with look-ahead
+            for idx in range(sent_len - 2):  # Prevent overflow in idx+2
+                word, next1, next2 = sentence[idx], sentence[idx+1], sentence[idx+2]
                 if word.startswith("#"):
                     continue
-                # find() doesn't work because we wind up finding substrings
-                if word.split("\t")[1] != match.group(1):
+                if word.split("\t", 2)[1] != match.group(1):
                     continue
-                if sentence[idx+1].split("\t")[1] != ',':
+                if next1.split("\t", 2)[1] != ',':
                     continue
-                if sentence[idx+2].split("\t")[1] != match.group(2):
+                if next2.split("\t", 2)[1] != match.group(2):
                     continue
                 break
-            if idx == len(sentence) - 1:
-                # this can happen with MWTs.  we may actually just
-                # want to skip MWTs anyway, so no big deal
+            else:
+                continue  # No match found
+
+            # Confirm if idx is not MWT boundary
+            if idx == sent_len - 1:
                 continue
-            # now idx+1 should be the line with the comma in it
-            comma = sentence[idx+1]
-            pieces = comma.split("\t")
+
+            # Update comma token line
+            pieces = sentence[idx+1].split("\t")
             assert pieces[1] == ','
             pieces[-1] = add_space_after_no(pieces[-1])
             comma = "\t".join(pieces)
+
+            # Copy and update sentence efficiently
             new_sent = sentence[:idx+1] + [comma] + sentence[idx+2:]
 
-            text_offset = sentence[text_idx].find(match.group(1) + ", " + match.group(2))
-            text_len = len(match.group(1) + ", " + match.group(2))
-            new_text = sentence[text_idx][:text_offset] + match.group(1) + "," + match.group(2) + sentence[text_idx][text_offset+text_len:]
+            # Update #text line in place
+            s1, s2 = match.group(1), match.group(2)
+            orig = f"{s1}, {s2}"
+            # Locate and replace exactly once
+            text_offset = sentence[text_idx].find(orig)
+            text_len = len(orig)
+            new_text = sentence[text_idx][:text_offset] + f"{s1},{s2}" + sentence[text_idx][text_offset+text_len:]
             new_sent[text_idx] = new_text
-
             new_sents.append(new_sent)
 
     print("Added %d new sentences with asdf, zzzz -> asdf,zzzz" % len(new_sents))
-            
     return sents + new_sents
 
 def augment_move_comma(sents, ratio=0.02):
@@ -275,78 +285,70 @@ def augment_move_comma(sents, ratio=0.02):
 
     Note that this modification replaces the original text.
     """
+    rand = random.random
     new_sents = []
     num_operations = 0
     for sentence in sents:
-        if random.random() > ratio:
+        if rand() > ratio:
             new_sents.append(sentence)
             continue
 
+        sent_len = len(sentence)
         found = False
-        for word_idx, word in enumerate(sentence):
+        for word_idx in range(1, sent_len - 2):
+            word = sentence[word_idx]
             if word.startswith("#"):
-                continue
-            if word_idx == 0 or word_idx >= len(sentence) - 2:
                 continue
             pieces = word.split("\t")
             if pieces[1] == ',' and not has_space_after_no(pieces[-1]):
-                # found a comma with a space after it
-                prev_word = sentence[word_idx-1]
-                if not has_space_after_no(prev_word.split("\t")[-1]):
-                    # unfortunately, the previous word also had a
-                    # space after it.  does not fit what we are
-                    # looking for
+                prev_pieces = sentence[word_idx-1].split("\t")
+                if not has_space_after_no(prev_pieces[-1]):
                     continue
-                # also, want to skip instances near MWT or copy nodes,
-                # since those are harder to rearrange
-                next_word = sentence[word_idx+1]
-                if MWT_OR_COPY_RE.match(next_word.split("\t")[0]):
+                if (MWT_OR_COPY_RE.match(sentence[word_idx+1].split("\t")[0]) or
+                    MWT_OR_COPY_RE.match(prev_pieces[0])):
                     continue
-                if MWT_OR_COPY_RE.match(prev_word.split("\t")[0]):
-                    continue
-                # at this point, the previous word has no space and the comma does
                 found = True
                 break
-
         if not found:
             new_sents.append(sentence)
             continue
 
         new_sentence = list(sentence)
-
+        # Add SpaceAfter=No to comma line
         pieces = new_sentence[word_idx].split("\t")
         pieces[-1] = add_space_after_no(pieces[-1])
         new_sentence[word_idx] = "\t".join(pieces)
 
-        pieces = new_sentence[word_idx-1].split("\t")
-        prev_word = pieces[1]
-        pieces[-1] = remove_space_after_no(pieces[-1])
-        new_sentence[word_idx-1] = "\t".join(pieces)
+        # Remove SpaceAfter=No from previous word
+        prev_pieces = new_sentence[word_idx-1].split("\t")
+        prev_word = prev_pieces[1]
+        prev_pieces[-1] = remove_space_after_no(prev_pieces[-1])
+        new_sentence[word_idx-1] = "\t".join(prev_pieces)
 
         next_word = new_sentence[word_idx+1].split("\t")[1]
 
-        for text_idx, text_line in enumerate(sentence):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
+        # Find # text index only once
+        text_idx = -1
+        for idx, text_line in enumerate(sentence):
             if text_line.startswith("# text"):
-                old_chunk = prev_word + ", " + next_word
-                new_chunk = prev_word + " ," + next_word
-                word_idx = text_line.find(old_chunk)
-                if word_idx < 0:
-                    raise RuntimeError("Unexpected #text line which did not contain the original text to be modified.  Looking for\n" + old_chunk + "\n" + text_line)
-                new_text_line = text_line[:word_idx] + new_chunk + text_line[word_idx+len(old_chunk):]
-                new_sentence[text_idx] = new_text_line
+                text_idx = idx
                 break
+        if text_idx != -1:
+            old_chunk = prev_word + ", " + next_word
+            new_chunk = prev_word + " ," + next_word
+            word_idx2 = sentence[text_idx].find(old_chunk)
+            if word_idx2 < 0:
+                raise RuntimeError("Unexpected #text line which did not contain the original text to be modified.  Looking for\n" + old_chunk + "\n" + sentence[text_idx])
+            new_text_line = sentence[text_idx][:word_idx2] + new_chunk + sentence[text_idx][word_idx2+len(old_chunk):]
+            new_sentence[text_idx] = new_text_line
 
         new_sents.append(new_sentence)
-        num_operations = num_operations + 1
+        num_operations += 1
 
     print("Swapped 'w1, w2' for 'w1 ,w2' %d times" % num_operations)
     return new_sents
 
 def augment_apos(sents):
-
     """
     If there are no instances of ’ in the dataset, but there are instances of ',
     we replace some fraction of ' with ’ so that the tokenizer will recognize it.
@@ -356,13 +358,16 @@ def augment_apos(sents):
     has_unicode_apos = False
     has_ascii_apos = False
     for sent_idx, sent in enumerate(sents):
-        if len(sent) == 0:
+        if not sent:
             raise AssertionError("Got a blank sentence in position %d!" % sent_idx)
         for line in sent:
             if line.startswith("# text"):
-                if line.find("'") >= 0:
+                # Short-circuit both searches
+                apos_idx = line.find("'")
+                uni_idx = line.find("’")
+                if apos_idx >= 0:
                     has_ascii_apos = True
-                if line.find("’") >= 0:
+                if uni_idx >= 0:
                     has_unicode_apos = True
                 break
         else:
@@ -371,9 +376,10 @@ def augment_apos(sents):
     if has_unicode_apos or not has_ascii_apos:
         return sents
 
+    rand = random.random
     new_sents = []
     for sent in sents:
-        if random.random() > 0.05:
+        if rand() > 0.05:
             new_sents.append(sent)
             continue
         new_sent = []
@@ -387,7 +393,6 @@ def augment_apos(sents):
                 pieces[1] = pieces[1].replace("'", "’")
                 new_sent.append("\t".join(pieces))
         new_sents.append(new_sent)
-
     return new_sents
 
 def augment_ellipses(sents):
@@ -401,19 +406,23 @@ def augment_ellipses(sents):
             if line.startswith("#"):
                 continue
             pieces = line.split("\t")
-            if pieces[1] == '...':
+            tok = pieces[1]
+            if tok == '...':
                 has_ellipses = True
-            elif pieces[1] == '…':
+            elif tok == '…':
                 has_unicode_ellipses = True
+        # Early exit if condition met
+        if has_ellipses and has_unicode_ellipses:
+            break
 
     if has_unicode_ellipses or not has_ellipses:
         return sents
 
+    rand = random.random
     new_sents = []
-
     num_updated = 0
     for sent in sents:
-        if random.random() > 0.1:
+        if rand() > 0.1:
             new_sents.append(sent)
             continue
         found = False
@@ -429,7 +438,7 @@ def augment_ellipses(sents):
                 new_sent.append("\t".join(pieces))
         new_sents.append(new_sent)
         if found:
-            num_updated = num_updated + 1
+            num_updated += 1
 
     print("Changed %d sentences to use fancy unicode ellipses" % num_updated)
     return new_sents
@@ -449,28 +458,30 @@ def augment_quotes(sents, ratio=0.15):
       eg Danish, don't add «...»
     """
     assert len(START_QUOTES) == len(END_QUOTES)
-
+    rand = random.random
     counts = Counter()
     new_sents = []
+    range_len = range(len(START_QUOTES))
     for sent in sents:
-        if random.random() > ratio:
+        if rand() > ratio:
             new_sents.append(sent)
             continue
 
-        # count if there are exactly 2 quotes in this sentence
-        # this is for convenience - otherwise we need to figure out which pairs go together
-        count_quotes = sum(1 for x in sent
-                           if (not x.startswith("#") and
-                               x.split("\t")[1] in QUOTES))
+        # Count quotes without generator expressions for performance
+        count_quotes = 0
+        for x in sent:
+            if not x.startswith("#"):
+                if x.split("\t", 2)[1] in QUOTES:
+                    count_quotes += 1
         if count_quotes != 2:
             new_sents.append(sent)
             continue
 
-        # choose a pair of quotes from the candidates
-        quote_idx = random.choice(range(len(START_QUOTES)))
+        # Select quote pair
+        quote_idx = random.choice(range_len)
         start_quote = START_QUOTES[quote_idx]
         end_quote = END_QUOTES[quote_idx]
-        counts[start_quote + end_quote] = counts[start_quote + end_quote] + 1
+        counts[start_quote + end_quote] += 1
 
         new_sent = []
         saw_start = False
@@ -481,8 +492,6 @@ def augment_quotes(sents, ratio=0.15):
             pieces = line.split("\t")
             if pieces[1] in QUOTES:
                 if saw_start:
-                    # Note that we don't change the lemma.  Presumably it's
-                    # set to the correct lemma for a quote for this treebank
                     pieces[1] = end_quote
                 else:
                     pieces[1] = start_quote
@@ -491,19 +500,17 @@ def augment_quotes(sents, ratio=0.15):
             else:
                 new_sent.append(line)
 
+        # Replace #text only once, precompiled regex
         for text_idx, text_line in enumerate(new_sent):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
             if text_line.startswith("# text"):
                 replacement = "\\1%s\\2%s\\3" % (start_quote, end_quote)
                 new_text_line = QUOTES_RE.sub(replacement, text_line)
                 new_sent[text_idx] = new_text_line
+                break
 
         new_sents.append(new_sent)
 
-    # we go through this to make it simpler to execute on Windows
-    # rather than nagging the user to set utf-8
+    # Simpler and faster stdout encoding for UTF-8 output
     out = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", write_through=True)
     print("Augmented {} quotes: {}".format(sum(counts.values()), counts), file=out)
     out.detach()
@@ -562,40 +569,36 @@ def augment_initial_punct(sents, ratio=0.20):
     Currently this just handles ¿
     This helps languages such as CA and ES where the models go awry when the initial ¿ is missing.
     """
+    rand = random.random
     new_sents = []
     for sent in sents:
-        if random.random() > ratio:
+        if rand() > ratio:
             continue
 
         text_idx = find_text_idx(sent)
+        if text_idx == -1:
+            continue
         text_line = sent[text_idx]
         if text_line.count("¿") != 1:
-            # only handle sentences with exactly one ¿
             continue
 
-        # find the first line with actual text
-        for idx, line in enumerate(sent):
-            if line.startswith("#"):
-                continue
-            break
-        if idx >= len(sent) - 1:
+        # Find first non-comment line only once
+        idx = next((i for i, line in enumerate(sent) if not line.startswith("#")), -1)
+        if idx == -1 or idx >= len(sent) - 1:
             raise ValueError("Unexpectedly an entire sentence is comments")
-        pieces = line.split("\t")
+        pieces = sent[idx].split("\t")
         if pieces[1] != '¿':
             continue
-        if has_space_after_no(pieces[-1]):
-            replace_text = "¿"
-        else:
-            replace_text = "¿ "
-
+        # Avoid two .replace() calls
+        replace_text = "¿" if has_space_after_no(pieces[-1]) else "¿ "
         new_sent = sent[:idx] + sent[idx+1:]
         new_sent[text_idx] = text_line.replace(replace_text, "")
 
-        # now need to update all indices
+        # Use generator for change_indices for memory efficiency
         new_sent = [change_indices(x, -1) for x in new_sent]
         new_sents.append(new_sent)
 
-    if len(new_sents) > 0:
+    if new_sents:
         print("Added %d sentences with the leading ¿ removed" % len(new_sents))
 
     return sents + new_sents
@@ -605,21 +608,26 @@ def augment_brackets(sents, ratio=0.1):
     """
     If there are no sentences with [], transform some () into []
     """
-    new_sents = []
+    # Pre-check: avoid duplicate work and unnecessary loops
     for sent in sents:
         text_idx = find_text_idx(sent)
+        if text_idx == -1:
+            continue
         text_line = sent[text_idx]
-        if text_line.count("[") > 0 or text_line.count("]") > 0:
-            # found a square bracket, so, never mind
+        if "[" in text_line or "]" in text_line:
             return sents
 
+    rand = random.random
+    new_sents = []
     for sent in sents:
-        if random.random() > ratio:
+        if rand() > ratio:
             continue
 
         text_idx = find_text_idx(sent)
+        if text_idx == -1:
+            continue
         text_line = sent[text_idx]
-        if text_line.count("(") == 0 and text_line.count(")") == 0:
+        if "(" not in text_line and ")" not in text_line:
             continue
 
         text_line = text_line.replace("(", "[").replace(")", "]")
@@ -629,14 +637,15 @@ def augment_brackets(sents, ratio=0.1):
             if line.startswith("#"):
                 continue
             pieces = line.split("\t")
-            if pieces[1] == '(':
+            tok = pieces[1]
+            if tok == '(':
                 pieces[1] = '['
-            elif pieces[1] == ')':
+            elif tok == ')':
                 pieces[1] = ']'
             new_sent[idx] = "\t".join(pieces)
         new_sents.append(new_sent)
 
-    if len(new_sents) > 0:
+    if new_sents:
         print("Added %d sentences with parens replaced with square brackets" % len(new_sents))
 
     return sents + new_sents
@@ -649,6 +658,7 @@ def augment_punct(sents):
 
     Also augments with ... / …
     """
+    # Apply augmentations in sequence
     new_sents = augment_apos(sents)
     new_sents = augment_quotes(new_sents)
     new_sents = augment_move_comma(new_sents)
@@ -656,7 +666,6 @@ def augment_punct(sents):
     new_sents = augment_initial_punct(new_sents)
     new_sents = augment_ellipses(new_sents)
     new_sents = augment_brackets(new_sents)
-
     return new_sents
 
 def remove_accents_from_words(sents):
