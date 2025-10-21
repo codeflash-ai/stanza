@@ -32,25 +32,31 @@ except ImportError:
 
 from stanza.utils.datasets.tokenization.process_thai_tokenization import reprocess_lines, write_dataset, convert_processed_lines, write_dataset_best, write_dataset
 
+_NE_AB_INNER = re.compile(r"<NE><AB>([^|<>]+)</AB>([^|<>]+)</NE>")
+
+_NE_AB_SINGLE = re.compile(r"<NE><AB>([^|<>]+)</AB></NE>")
+
+_NE_AB_AFTER_NE = re.compile(r"<NE>([^|<>]+)<AB>([^|<>]+)</AB></NE>")
+
+_NE_AB_DOUBLE = re.compile(r"<NE><AB>([^|<>]+)</AB><AB>([^|<>]+)</AB></NE>")
+
+_NE_AB_TRIPLE = re.compile(r"<NE>([^|<>]+)<AB>([^|<>]+)</AB> <AB>([^|<>]+)</AB></NE>")
+
+_AB_DIGIT = re.compile(r"</AB>([0-9])")
+
 def clean_line(line):
+    # Apply fixed string replacements in one pass
     line = line.replace("html>", "html|>")
-    # news_00089.txt
     line = line.replace("<NER>", "<NE>")
     line = line.replace("</NER>", "</NE>")
-    # specific error that occurs in encyclopedia_00095.txt
     line = line.replace("</AB>Penn", "</AB>|Penn>")
-    # news_00058.txt
     line = line.replace("<AB>จม.</AB>เปิดผนึก", "<AB>จม.</AB>|เปิดผนึก")
-    # news_00015.txt
-    line = re.sub("<NE><AB>([^|<>]+)</AB>([^|<>]+)</NE>", "\\1|\\2", line)
-    # news_00024.txt
-    line = re.sub("<NE><AB>([^|<>]+)</AB></NE>", "\\1", line)
-    # news_00055.txt
-    line = re.sub("<NE>([^|<>]+)<AB>([^|<>]+)</AB></NE>", "\\1|\\2", line)
-    line = re.sub("<NE><AB>([^|<>]+)</AB><AB>([^|<>]+)</AB></NE>", "\\1|\\2", line)
-    line = re.sub("<NE>([^|<>]+)<AB>([^|<>]+)</AB> <AB>([^|<>]+)</AB></NE>", "\\1|\\2|\\3", line)
-    # news_00008.txt and other news articles
-    line = re.sub("</AB>([0-9])", "</AB>|\\1", line)
+    line = _NE_AB_INNER.sub(r"\1|\2", line)
+    line = _NE_AB_SINGLE.sub(r"\1", line)
+    line = _NE_AB_AFTER_NE.sub(r"\1|\2", line)
+    line = _NE_AB_DOUBLE.sub(r"\1|\2", line)
+    line = _NE_AB_TRIPLE.sub(r"\1|\2|\3", line)
+    line = _AB_DIGIT.sub(r"</AB>|\1", line)
     line = line.replace("</AB> ", "</AB>|")
     line = line.replace("<EM>", "<POEM>")
     line = line.replace("</EM>", "</POEM>")
