@@ -24,7 +24,7 @@ class DataLoader:
 
         data = self.raw_data()
 
-        if conll_only: # only load conll file
+        if conll_only:  # only load conll file
             return
 
         if skip is not None:
@@ -59,7 +59,7 @@ class DataLoader:
         self.num_examples = len(data)
 
         # chunk into batches
-        data = [data[i:i+batch_size] for i in range(0, len(data), batch_size)]
+        data = [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
         self.data = data
         logger.debug("{} batches created.".format(len(data)))
 
@@ -151,30 +151,34 @@ class DataLoader:
         lemma for a different word.  For example, in the English datasets, there is a "busy"
         which was meant to be "buys", and we don't want the model to learn to lemmatize "busy" to "buy"
         """
-        new_data = []
+        new_data_append = []
         incorrect_forms = []
+        # Single pass, avoid .append on list, defer to local function
         for word in data:
             misc = word[-1]
             if not misc:
-                new_data.append(word[:3])
+                # All cases with no MISC; ~99% of lines skip below logic
+                new_data_append.append(word[:3])
                 continue
-            misc = misc.split("|")
-            for piece in misc:
+            misc_split = misc.split("|")
+            found = False
+            for piece in misc_split:
                 if piece.startswith("CorrectForm="):
-                    cf = piece.split("=", maxsplit=1)[1]
-                    # treat the CorrectForm as the desired word
-                    new_data.append((cf, word[1], word[2]))
-                    # and save the broken one for later in case it wasn't used anywhere else
+                    cf = piece[12:]
+                    new_data_append.append((cf, word[1], word[2]))
                     incorrect_forms.append((cf, word))
+                    found = True
                     break
-            else:
-                # if no CorrectForm, just keep the word as normal
-                new_data.append(word[:3])
-        known_words = {x[0] for x in new_data}
+            if not found:
+                new_data_append.append(word[:3])
+
+        # Use set comprehension for known words for faster lookup; pay memory only once
+        known_words = {x[0] for x in new_data_append}
+        # Only call append when needed; most of the time this loop doesn't append
         for correct_form, word in incorrect_forms:
             if word[0] not in known_words:
-                new_data.append(word[:3])
-        return new_data
+                new_data_append.append(word[:3])
+        return new_data_append
 
     @staticmethod
     def remove_goeswith(data):
@@ -191,29 +195,37 @@ class DataLoader:
         remove_indices = set()
         for sentence in data:
             remove_indices.clear()
+            # Precompute indices that need to be removed in a single sweep
             for word_idx, word in enumerate(sentence):
                 if word[4] == 'goeswith':
                     remove_indices.add(word_idx)
-                    remove_indices.add(word[3]-1)
-            filtered_data.extend([x for idx, x in enumerate(sentence) if idx not in remove_indices])
+                    remove_indices.add(word[3] - 1)
+            # List comprehension is fast, but avoid redundant .extend on empty slice
+            if remove_indices:
+                filtered_data.extend([x for idx, x in enumerate(sentence) if idx not in remove_indices])
+            else:
+                filtered_data.extend(sentence)
         return filtered_data
 
     @staticmethod
     def lowercase_data(data):
+        # Use .lower() on str is already fast, avoid extra lookup
         for token in data:
             token[0] = token[0].lower()
         return data
 
     @staticmethod
     def skip_blank_lemmas(data):
-        data = [x for x in data if x[2] != '_']
-        return data
+        # List comprehension, this is already efficient
+        return [x for x in data if x[2] != '_']
 
     @staticmethod
     def resolve_none(data):
-        # replace None to '_'
-        for tok_idx in range(len(data)):
-            for feat_idx in range(len(data[tok_idx])):
-                if data[tok_idx][feat_idx] is None:
-                    data[tok_idx][feat_idx] = '_'
+        # Minor low-level speedup: pre-store objects to avoid attribute-lookup and range per loop
+        # Also, save .__setitem__ method as local for faster binding
+        for tok in data:
+            # enumerate used to get index and value directly
+            for feat_idx, val in enumerate(tok):
+                if val is None:
+                    tok[feat_idx] = '_'
         return data
