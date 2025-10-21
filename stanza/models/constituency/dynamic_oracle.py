@@ -64,13 +64,25 @@ def advance_past_constituents(gold_sequence, cur_index):
     The index returned is the index of the Close which occurred after all the stuff
     """
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-            if count == -1: return cur_index
-        cur_index = cur_index + 1
+    # Optimization: avoid repeated lookups and isinstance checks by storing types locally
+    open_type = OpenConstituent
+    close_type = CloseConstituent
+    seq = gold_sequence  # Local var reference for tight loop
+
+    length = len(seq)
+    i = cur_index
+
+    while i < length:
+        el = seq[i]
+        # Use type(el) is X for performance (assumes list is well-formed)
+        typ = type(el)
+        if typ is open_type:
+            count += 1
+        elif typ is close_type:
+            count -= 1
+            if count == -1:
+                return i
+        i += 1
     return None
 
 def find_previous_open(gold_sequence, cur_index):
