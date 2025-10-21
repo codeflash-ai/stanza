@@ -695,23 +695,34 @@ def remove_spaces_from_sentences(sents):
 
     Returns a new list of sentences
     """
+    # Localize variables to improve lookup speed
+    SPACEAFTER = "SpaceAfter=No"
+    TAB = "\t"
+
     new_sents = []
+    append_sentence = new_sents.append  # Localize for performance
     for sentence in sents:
         new_sentence = []
+        append_word = new_sentence.append  # Localize for performance
         for word in sentence:
             if word.startswith("#"):
-                new_sentence.append(word)
+                append_word(word)
                 continue
-            pieces = word.split("\t")
-            if pieces[-1] == "_":
-                pieces[-1] = "SpaceAfter=No"
-            elif pieces[-1].find("SpaceAfter=No") >= 0:
+            # Use rpartition for more efficient splitting
+            before, sep, after = word.rpartition(TAB)
+            if after == "_":
+                after = SPACEAFTER
+            elif "SpaceAfter=No" in after:
                 pass
             else:
                 raise ValueError("oops")
-            word = "\t".join(pieces)
-            new_sentence.append(word)
-        new_sents.append(new_sentence)
+            # Only join if we split successfully
+            if sep:
+                word = f"{before}{sep}{after}"
+            else:
+                word = after
+            append_word(word)
+        append_sentence(new_sentence)
     return new_sents
 
 def remove_spaces(input_conllu, output_conllu):
