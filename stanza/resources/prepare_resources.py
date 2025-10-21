@@ -25,6 +25,8 @@ from stanza.resources.default_packages import *
 from stanza.utils.datasets.prepare_lemma_classifier import DATASET_MAPPING as LEMMA_CLASSIFIER_DATASETS
 from stanza.utils.get_tqdm import get_tqdm
 
+_KNOWN_NICKNAMES_SET = set(known_nicknames())
+
 tqdm = get_tqdm()
 
 def parse_args():
@@ -115,11 +117,13 @@ def split_package(package, default_use_charlm=True):
     if package.endswith("_charlm"):
         package = package[:-7]
         return package, True, True
+
     underscore = package.rfind("_")
     if underscore >= 0:
         # +1 to skip the underscore
         nickname = package[underscore+1:]
-        if nickname in known_nicknames():
+        # Use the cached set for O(1) lookup
+        if nickname in _KNOWN_NICKNAMES_SET:
             return package[:underscore], True, True
 
     # guess it was a model which wasn't built with the new naming convention of putting the pretrain type at the end
@@ -144,10 +148,12 @@ def get_charlm_package(lang, package, model_charlms, default_charlms, default_us
     if not uses_charlm:
         return None
 
-    if model_charlms is not None and lang in model_charlms and package in model_charlms[lang]:
-        return model_charlms[lang][package]
-    else:
-        return default_charlms.get(lang, None)
+    if model_charlms is not None and lang in model_charlms:
+        lang_packages = model_charlms[lang]
+        if package in lang_packages:
+            return lang_packages[package]
+
+    return default_charlms.get(lang, None)
 
 def get_con_dependencies(lang, package):
     # so far, this invariant is true:
