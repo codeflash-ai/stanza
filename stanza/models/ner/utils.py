@@ -103,25 +103,35 @@ def bio2_to_bioes(tags):
         new_tags: a list of tags in BIOES format
     """
     new_tags = []
+    len_tags = len(tags)
+    # Cache .append locally for loop optimization
+    append = new_tags.append
+    EMPTY_OR_O_TAG_LOCAL = EMPTY_OR_O_TAG  # local reference for reduced global lookup
+
     for i, tag in enumerate(tags):
-        if tag in EMPTY_OR_O_TAG:
-            new_tags.append(tag)
-        else:
-            if len(tag) < 2:
-                raise Exception(f"Invalid BIO2 tag found: {tag}")
+        if tag in EMPTY_OR_O_TAG_LOCAL:
+            append(tag)
+            continue
+        if len(tag) < 2:
+            raise Exception(f"Invalid BIO2 tag found: {tag}")
+        tag_prefix = tag[:2]
+        tag_suffix = tag[2:]
+        # Precompute next_tag_prefix only if needed
+        next_i = i + 1
+        next_tag_prefix = tags[next_i][:2] if next_i < len_tags and len(tags[next_i]) >= 2 else None
+
+        if tag_prefix in ('I-', 'I_'):
+            if next_tag_prefix in ('I-', 'I_'):
+                append('I-' + tag_suffix)
             else:
-                if tag[:2] in ('I-', 'I_'): # convert to E- if next tag is not I-
-                    if i+1 < len(tags) and tags[i+1][:2] in ('I-', 'I_'):
-                        new_tags.append('I-' + tag[2:]) # compensate for underscores
-                    else:
-                        new_tags.append('E-' + tag[2:])
-                elif tag[:2] in ('B-', 'B_'): # convert to S- if next tag is not I-
-                    if i+1 < len(tags) and tags[i+1][:2] in ('I-', 'I_'):
-                        new_tags.append('B-' + tag[2:])
-                    else:
-                        new_tags.append('S-' + tag[2:])
-                else:
-                    raise Exception(f"Invalid IOB tag found: {tag}")
+                append('E-' + tag_suffix)
+        elif tag_prefix in ('B-', 'B_'):
+            if next_tag_prefix in ('I-', 'I_'):
+                append('B-' + tag_suffix)
+            else:
+                append('S-' + tag_suffix)
+        else:
+            raise Exception(f"Invalid IOB tag found: {tag}")
     return new_tags
 
 def normalize_empty_tags(sentences):
