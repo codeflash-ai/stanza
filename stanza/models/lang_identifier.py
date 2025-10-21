@@ -143,11 +143,7 @@ def score_log_path(file_path):
     Helper that will determine corresponding log file (e.g. /path/to/demo.pt to /path/to/demo.json
     """
     model_suffix = os.path.splitext(file_path)
-    if model_suffix[1]:
-        score_log_path = f"{file_path[:-len(model_suffix[1])]}.json"
-    else:
-        score_log_path = f"{file_path}.json"
-    return score_log_path
+    return f"{model_suffix[0]}.json"
 
 
 def eval_model(args):
