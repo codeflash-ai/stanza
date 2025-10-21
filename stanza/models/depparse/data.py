@@ -222,12 +222,11 @@ class DataLoader:
         return batches
 
 def to_int(string, ignore_error=False):
-    try:
-        res = int(string)
-    except ValueError as err:
-        if ignore_error:
+    if ignore_error:
+        try:
+            return int(string)
+        except ValueError:
             return 0
-        else:
-            raise err
-    return res
+    else:
+        return int(string)
 
