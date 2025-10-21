@@ -215,50 +215,73 @@ def augment_comma_separations(sents, ratio=0.03):
     potentially be useful for compensating for typos.
     """
     new_sents = []
+    # Pre-binding frequently used global for local access (micro-optimization)
+    search_comma = COMMA_SEPARATED_RE.search
+    random_random = random.random
+
     for sentence in sents:
-        for text_idx, text_line in enumerate(sentence):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
-            if text_line.startswith("# text"):
+        text_line = None
+        text_idx = None
+        # Use enumerate and next to efficiently find the "# text" line, if present
+        for i, line in enumerate(sentence):
+            if line.startswith("# text"):
+                text_line = line
+                text_idx = i
                 break
-        else:
+        if text_line is None:
             continue
 
-        match = COMMA_SEPARATED_RE.search(sentence[text_idx])
-        if match and random.random() < ratio:
-            for idx, word in enumerate(sentence):
-                if word.startswith("#"):
+        match = search_comma(text_line)
+        if match and random_random() < ratio:
+            group1 = match.group(1)
+            group2 = match.group(2)
+            # Avoid repeated split() by collecting all token lines first
+            found = False
+            for idx in range(len(sentence) - 2):
+                word1 = sentence[idx]
+                if word1.startswith("#"):
                     continue
-                # find() doesn't work because we wind up finding substrings
-                if word.split("\t")[1] != match.group(1):
+                columns1 = word1.split("\t", 2)
+                if len(columns1) < 2 or columns1[1] != group1:
                     continue
-                if sentence[idx+1].split("\t")[1] != ',':
+
+                word_comma = sentence[idx + 1]
+                columns_comma = word_comma.split("\t", 2)
+                if len(columns_comma) < 2 or columns_comma[1] != ',':
                     continue
-                if sentence[idx+2].split("\t")[1] != match.group(2):
+
+                word2 = sentence[idx + 2]
+                columns2 = word2.split("\t", 2)
+                if len(columns2) < 2 or columns2[1] != group2:
                     continue
+
+                found = True
                 break
-            if idx == len(sentence) - 1:
-                # this can happen with MWTs.  we may actually just
-                # want to skip MWTs anyway, so no big deal
+
+            if not found or idx == len(sentence) - 2:
                 continue
-            # now idx+1 should be the line with the comma in it
-            comma = sentence[idx+1]
-            pieces = comma.split("\t")
+
+            # Prepare modified comma token
+            pieces = sentence[idx + 1].split("\t")
             assert pieces[1] == ','
             pieces[-1] = add_space_after_no(pieces[-1])
             comma = "\t".join(pieces)
-            new_sent = sentence[:idx+1] + [comma] + sentence[idx+2:]
+            # Slice and insert efficiently
+            # Avoid copying the sentence if not necessary - only copy to new_sent if mutation occurs
+            new_sent = sentence[:]
+            new_sent[idx + 1] = comma
 
-            text_offset = sentence[text_idx].find(match.group(1) + ", " + match.group(2))
-            text_len = len(match.group(1) + ", " + match.group(2))
-            new_text = sentence[text_idx][:text_offset] + match.group(1) + "," + match.group(2) + sentence[text_idx][text_offset+text_len:]
+            # Directly use text_line and precomputed indices for new_text construction
+            find_str = group1 + ", " + group2
+            text_offset = text_line.find(find_str)
+            text_len = len(find_str)
+            new_text = text_line[:text_offset] + group1 + "," + group2 + text_line[text_offset + text_len:]
             new_sent[text_idx] = new_text
 
             new_sents.append(new_sent)
 
     print("Added %d new sentences with asdf, zzzz -> asdf,zzzz" % len(new_sents))
-            
+
     return sents + new_sents
 
 def augment_move_comma(sents, ratio=0.02):
