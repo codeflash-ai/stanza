@@ -9,10 +9,12 @@ def find_constituent_end(gold_sequence, cur_index):
     Find the Close which ends the next constituent opened at or after cur_index
     """
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
+    seq_len = len(gold_sequence)
+    while cur_index < seq_len:
+        item_type = type(gold_sequence[cur_index])
+        if item_type is OpenConstituent:
             count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
+        elif item_type is CloseConstituent:
             count = count - 1
             if count == 0:
                 return cur_index
