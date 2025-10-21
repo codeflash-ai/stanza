@@ -92,7 +92,9 @@ def split_model_name(model):
     """
     model = model[:-3].replace('.', '_')
     # sort by key length so that nertagger is checked before tagger, for example
-    for processor in sorted(ending_to_processor.keys(), key=lambda x: -len(x)):
+    if not hasattr(split_model_name, "_sorted_processors"):
+        split_model_name._sorted_processors = sorted(ending_to_processor.keys(), key=lambda x: -len(x))
+    for processor in split_model_name._sorted_processors:
         if model.endswith(processor):
             model = model[:-(len(processor)+1)]
             processor = ending_to_processor[processor]
