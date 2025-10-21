@@ -339,7 +339,7 @@ def process_dirs(args):
     json.dump(resources, open(os.path.join(args.output_dir, 'resources.json'), 'w'), indent=2)
 
 def get_default_pos_package(lang, ud_package):
-    charlm_package = get_pos_charlm_package(lang, ud_package)
+    charlm_package = get_charlm_package(lang, ud_package, pos_charlms, default_charlms)
     if charlm_package is not None:
         return ud_package + "_charlm"
     if lang in no_pretrain_languages:
