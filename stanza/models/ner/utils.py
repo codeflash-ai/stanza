@@ -271,43 +271,58 @@ def merge_tags(*sequences):
     Only O is replaced, and the earlier tags have precedence
     """
     tags = list(sequences[0])
+    tags_len = len(tags)
     for sequence in sequences[1:]:
+        seq_len = len(sequence)
         idx = 0
-        while idx < len(sequence):
-            # skip empty tags in the later sequences
-            if sequence[idx] == 'O':
+
+        while idx < seq_len:
+            current_tag = sequence[idx]
+            if current_tag == 'O':
                 idx += 1
                 continue
 
-            # check for singletons.  copy if not O in the original
-            if sequence[idx].startswith("S-"):
+            if current_tag.startswith("S-"):
+                # Singletons
                 if tags[idx] == 'O':
-                    tags[idx] = sequence[idx]
+                    tags[idx] = current_tag
                 idx += 1
                 continue
 
-            # at this point, we know we have a B-... sequence
-            if not sequence[idx].startswith("B-"):
+            # Must be B-... sequence
+            if not current_tag.startswith("B-"):
                 raise ValueError("Got unexpected tag sequence at idx {}: {}".format(idx, sequence))
 
-            # take the block of tags which are B- through E-
+            tag_type = current_tag[2:]
             start_idx = idx
             end_idx = start_idx + 1
-            while end_idx < len(sequence):
-                if sequence[end_idx][2:] != sequence[start_idx][2:]:
+
+            # Inline block scan: minimize slicing and str calls, fast fail
+            while end_idx < seq_len:
+                next_tag = sequence[end_idx]
+                if next_tag[2:] != tag_type:
                     raise ValueError("Unexpected tag sequence at idx {}: {}".format(end_idx, sequence))
-                if sequence[end_idx].startswith("E-"):
+
+                if next_tag[0] == 'E':
                     break
-                if not sequence[end_idx].startswith("I-"):
+                if next_tag[0] != 'I':
                     raise ValueError("Unexpected tag sequence at idx {}: {}".format(end_idx, sequence))
                 end_idx += 1
-            if end_idx == len(sequence):
-                raise ValueError("Got a sequence with an unclosed tag: {}".format(sequence))
-            end_idx = end_idx + 1
 
-            # if all tags in the original are O, we can overwrite
-            # otherwise, keep the originals
-            if all(x == 'O' for x in tags[start_idx:end_idx]):
+            if end_idx == seq_len:
+                raise ValueError("Got a sequence with an unclosed tag: {}".format(sequence))
+            end_idx += 1  # Exclusive
+
+            # Efficient O check: avoid generator for small slice
+            # Use memoryview-like approach with for loop for speed
+            can_replace = True
+            for i in range(start_idx, end_idx):
+                if tags[i] != 'O':
+                    can_replace = False
+                    break
+
+            if can_replace:
+                # Fast slice assignment, only when allowed
                 tags[start_idx:end_idx] = sequence[start_idx:end_idx]
             idx = end_idx
 
