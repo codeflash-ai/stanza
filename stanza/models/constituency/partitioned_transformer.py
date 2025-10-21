@@ -33,7 +33,7 @@ class FeatureDropoutFunction(torch.autograd.function.InplaceFunction):
 
         if ctx.p > 0 and ctx.train:
             ctx.noise = torch.empty(
-                (input.size(0), input.size(-1)),
+                (input.size(0), 1, input.size(-1)),
                 dtype=input.dtype,
                 layout=input.layout,
                 device=input.device,
@@ -42,7 +42,6 @@ class FeatureDropoutFunction(torch.autograd.function.InplaceFunction):
                 ctx.noise.fill_(0)
             else:
                 ctx.noise.bernoulli_(1 - ctx.p).div_(1 - ctx.p)
-            ctx.noise = ctx.noise[:, None, :]
             output.mul_(ctx.noise)
 
         return output
