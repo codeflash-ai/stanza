@@ -16,11 +16,26 @@ class DynamicDepth():
         Returns:
             list: Relative depth in the dependency parse for every word
         """
-        self.heads = heads[start:end]
-        self.relative_heads = [h - start if h else -100 for h in self.heads] # -100 to deal with 'none' headwords
+        # Use local variables for faster attribute access and avoid repeated lookups
+        heads_slice = heads[start:end]
+        # Use a local list comprehension with a local variable to avoid attribute access overhead
+        relative_heads = [h - start if h else -100 for h in heads_slice]
 
-        depths = [self._get_depth_recursive(h) for h in range(len(self.relative_heads))]
+        cache = {}
 
+        def get_depth(index):
+            # Fast local access to relative_heads and cache lookup, avoids @lru_cache per-instance overhead
+            if index in cache:
+                return cache[index]
+            head = relative_heads[index]
+            if head >= len(relative_heads) or head < 0:
+                cache[index] = 0
+                return 0
+            depth = get_depth(head) + 1
+            cache[index] = depth
+            return depth
+
+        depths = [get_depth(i) for i in range(len(relative_heads))]
         return depths
 
     @lru_cache(maxsize=None)
