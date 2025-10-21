@@ -80,15 +80,14 @@ def find_previous_open(gold_sequence, cur_index):
     Return None if it can't be found.
     """
     count = 0
-    cur_index = cur_index - 1
-    while cur_index >= 0:
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
+    for i in range(cur_index - 1, -1, -1):
+        elem = gold_sequence[i]
+        if type(elem) is OpenConstituent:
+            count += 1
             if count > 0:
-                return cur_index
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-        cur_index = cur_index - 1
+                return i
+        elif type(elem) is CloseConstituent:
+            count -= 1
     return None
 
 def find_in_order_constituent_end(gold_sequence, cur_index):
