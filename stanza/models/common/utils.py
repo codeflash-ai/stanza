@@ -237,29 +237,47 @@ def dispatch_optimizer(name, parameters, opt_logger, lr=None, betas=None, eps=No
 
 def get_optimizer(name, model, lr, betas=(0.9, 0.999), eps=1e-8, momentum=0, weight_decay=None, bert_learning_rate=0.0, bert_weight_decay=None, charlm_learning_rate=0.0, is_peft=False, bert_finetune_layers=None, opt_logger=None):
     opt_logger = opt_logger if opt_logger is not None else logger
-    base_parameters = [p for n, p in model.named_parameters()
-                       if p.requires_grad and not n.startswith("bert_model.")
-                       and not n.startswith("charmodel_forward.") and not n.startswith("charmodel_backward.")]
+
+    # Precompute special filters for BERT layers if used
+    bert_last_layers_set = None
+    if not is_peft and bert_finetune_layers is not None:
+        num_layers = model.bert_model.config.num_hidden_layers
+        start_layer = num_layers - bert_finetune_layers
+        bert_last_layers_set = {
+            f"layer.{layer_num}." for layer_num in range(start_layer, num_layers)
+        }
+
+    base_parameters = []
+    charlm_parameters = []
+    bert_parameters = []
+
+    # Iterate once over named_parameters and assign to proper group
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if n.startswith("bert_model."):
+            if not is_peft:
+                if bert_finetune_layers is None:
+                    bert_parameters.append(p)
+                else:
+                    # Only select last N layers
+                    if any(layer_str in n for layer_str in bert_last_layers_set):
+                        bert_parameters.append(p)
+            else:
+                # For PEFT, defer to below (collect all bert parameters)
+                pass
+        elif n.startswith("charmodel_forward.") or n.startswith("charmodel_backward."):
+            charlm_parameters.append(p)
+        else:
+            base_parameters.append(p)
+
     parameters = [{'param_group_name': 'base', 'params': base_parameters}]
 
-    charlm_parameters = [p for n, p in model.named_parameters()
-                         if p.requires_grad and (n.startswith("charmodel_forward.") or n.startswith("charmodel_backward."))]
-    if len(charlm_parameters) > 0 and charlm_learning_rate > 0:
+    if charlm_parameters and charlm_learning_rate > 0:
         parameters.append({'param_group_name': 'charlm', 'params': charlm_parameters, 'lr': lr * charlm_learning_rate})
 
     if not is_peft:
-        bert_parameters = [p for n, p in model.named_parameters() if p.requires_grad and n.startswith("bert_model.")]
-
-        # bert_finetune_layers limits the bert finetuning to the *last* N layers of the model
-        if len(bert_parameters) > 0 and bert_finetune_layers is not None:
-            num_layers = model.bert_model.config.num_hidden_layers
-            start_layer = num_layers - bert_finetune_layers
-            bert_parameters = []
-            for layer_num in range(start_layer, num_layers):
-                bert_parameters.extend([param for name, param in model.named_parameters()
-                                        if param.requires_grad and name.startswith("bert_model.") and "layer.%d." % layer_num in name])
-
-        if len(bert_parameters) > 0 and bert_learning_rate > 0:
+        if bert_parameters and bert_learning_rate > 0:
             opt_logger.debug("Finetuning %d bert parameters with LR %s and WD %s", len(bert_parameters), lr * bert_learning_rate, bert_weight_decay)
             parameters.append({'param_group_name': 'bert', 'params': bert_parameters, 'lr': lr * bert_learning_rate})
             if bert_weight_decay is not None:
@@ -276,7 +294,16 @@ def get_optimizer(name, model, lr, betas=(0.9, 0.999), eps=1e-8, momentum=0, wei
     if weight_decay is not None:
         extra_args["weight_decay"] = weight_decay
 
-    return dispatch_optimizer(name, parameters, opt_logger=opt_logger, lr=lr, betas=betas, eps=eps, momentum=momentum, **extra_args)
+    return dispatch_optimizer(
+        name,
+        parameters,
+        opt_logger=opt_logger,
+        lr=lr,
+        betas=betas,
+        eps=eps,
+        momentum=momentum,
+        **extra_args
+    )
 
 def get_split_optimizer(name, model, lr, betas=(0.9, 0.999), eps=1e-8, momentum=0, weight_decay=None, bert_learning_rate=0.0, bert_weight_decay=None, charlm_learning_rate=0.0, is_peft=False, bert_finetune_layers=None):
     """Same as `get_optimizer`, but splits the optimizer for Bert into a seperate optimizer"""
