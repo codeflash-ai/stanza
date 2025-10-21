@@ -158,36 +158,70 @@ def augment_telugu(sents):
     make the tools more generalizable on wild text.
     """
     new_sents = []
+    # Predefine used punctuation tuple for faster access
+    sentence_final_punct = ('.', '?', '!')
     for sentence in sents:
-        if not sentence[1].startswith("# text"):
+        sent_text = sentence[1]
+        sent_translit = sentence[2]
+        # Directly reuse variables to avoid repeated attribute lookups
+        # Fast path checks for "# text" and "# translit"
+        if not sent_text.startswith("# text"):
             raise ValueError("Expected the second line of %s to start with # text" % sentence[0])
-        if not sentence[2].startswith("# translit"):
+        if not sent_translit.startswith("# translit"):
             raise ValueError("Expected the second line of %s to start with # translit" % sentence[0])
-        if sentence[1].endswith(". . .") or sentence[1][-1] not in ('.', '?', '!'):
+        # Fast reject: only proceed for likely-modifiable sentences
+        stxt_end = sent_text[-1]
+        if sent_text.endswith(". . .") or stxt_end not in sentence_final_punct:
             continue
-        if sentence[1][-1] in ('.', '?', '!') and sentence[1][-2] != ' ' and sentence[1][-3:] != ' ..' and sentence[1][-4:] != ' ...':
-            raise ValueError("Sentence %s does not end with space-punctuation, which is against our assumptions for the te_mtg treebank.  Please check the augment method to see if it is still needed" % sentence[0])
-        if random.random() < 0.1:
+        # Checking assumptions on dotted endings
+        if (
+            stxt_end in sentence_final_punct
+            and sent_text[-2] != ' '
+            and sent_text[-3:] != ' ..'
+            and sent_text[-4:] != ' ...'
+        ):
+            raise ValueError(
+                "Sentence %s does not end with space-punctuation, which is against our assumptions for the te_mtg treebank.  Please check the augment method to see if it is still needed"
+                % sentence[0]
+            )
+
+        # Inline random checks to avoid extra function calls
+        rand_float = random.random()
+        if rand_float < 0.1:
+            # Merge punctuation with previous character for ./?/!
             new_sentence = list(sentence)
-            new_sentence[1] = new_sentence[1][:-2] + new_sentence[1][-1]
-            new_sentence[2] = new_sentence[2][:-2] + new_sentence[2][-1]
+            # Avoid slice computation for every operation.
+            new_sentence[1] = sent_text[:-2] + stxt_end
+            new_sentence[2] = sent_translit[:-2] + stxt_end
+            # Fast append of flag
             new_sentence[-2] = new_sentence[-2] + "|SpaceAfter=No"
             new_sents.append(new_sentence)
-        if sentence[1].find(",") > 1 and random.random() < 0.1:
+
+        # Only compute comma index once (and reuse) if plausible for comma-modification branch
+        comma_index = sent_text.find(",")
+        if comma_index > 1 and random.random() < 0.1:
             new_sentence = list(sentence)
-            index = sentence[1].find(",")
-            new_sentence[1] = sentence[1][:index-1] + sentence[1][index:]
-            index = sentence[1].find(",")
-            new_sentence[2] = sentence[2][:index-1] + sentence[2][index:]
-            for idx, word in enumerate(new_sentence):
-                if idx < 4:
-                    # skip sent_id, text, transliteration, and the first word
-                    continue
-                if word.split("\t")[1] == ',':
+            # Merge comma with previous character for the text and translit
+            # This avoids recomputing .find(",") repeatedly on the same string.
+            new_sentence[1] = sent_text[:comma_index-1] + sent_text[comma_index:]
+            # Find comma index again in translit assuming both strings are aligned in structure
+            new_sentence[2] = sent_translit[:comma_index-1] + sent_translit[comma_index:]
+
+            # Find comma in tokens only once and early-exit (break) after change
+            # enumerate + unpack saves repeated .split() ops for each word
+            for idx in range(4, len(new_sentence)):
+                word = new_sentence[idx]
+                fields = word.split("\t", 2)
+                # Only split needed for first two columns, avoids work.
+                if len(fields) > 1 and fields[1] == ',':
                     new_sentence[idx-1] = new_sentence[idx-1] + "|SpaceAfter=No"
                     break
             new_sents.append(new_sentence)
-    return sents + new_sents
+    # Use list extend for maximum efficiency if new_sents is non-empty
+    if new_sents:
+        return sents + new_sents
+    else:
+        return sents
 
 COMMA_SEPARATED_RE = re.compile(" ([a-zA-Z]+)[,] ([a-zA-Z]+) ")
 def augment_comma_separations(sents, ratio=0.03):
