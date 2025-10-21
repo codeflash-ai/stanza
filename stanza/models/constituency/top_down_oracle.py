@@ -8,15 +8,23 @@ def find_constituent_end(gold_sequence, cur_index):
     """
     Find the Close which ends the next constituent opened at or after cur_index
     """
+    # Store types to avoid repeated isinstance lookups
+    OpenType = OpenConstituent
+    CloseType = CloseConstituent
+    # Cache length locally for reduced attribute lookup in loop
+    length = len(gold_sequence)
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
+    # Localize cur_index as a variable to avoid modifying the input (behavior is same)
+    idx = cur_index
+    while idx < length:
+        elem = gold_sequence[idx]
+        if type(elem) is OpenType:
+            count += 1
+        elif type(elem) is CloseType:
+            count -= 1
             if count == 0:
-                return cur_index
-        cur_index += 1
+                return idx
+        idx += 1
     raise AssertionError("Open constituent not closed starting from index %d in sequence %s" % (cur_index, gold_sequence))
 
 def fix_shift_close(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
@@ -445,22 +453,30 @@ def fix_close_open_correct_open(gold_transition, pred_transition, gold_sequence,
     of the Close/Open transition where the Close could occur in
     multiple places later in the sequence.
     """
-    if not isinstance(pred_transition, OpenConstituent):
+    OpenType = OpenConstituent
+    CloseType = CloseConstituent
+    # Use faster type comparison
+    if type(pred_transition) is not OpenType:
         return None
 
-    if not isinstance(gold_transition, CloseConstituent):
+    if type(gold_transition) is not CloseType:
         return None
 
     if gold_sequence[gold_index+1] != pred_transition:
         return None
 
     close_index = find_constituent_end(gold_sequence, gold_index+1)
-    if check_close and not isinstance(gold_sequence[close_index+1], CloseConstituent):
+    # Only uses indexing once
+    if check_close and type(gold_sequence[close_index+1]) is not CloseType:
         return None
 
-    # at this point, we know we can put the Close at the end of the
-    # Open which was accidentally added
-    updated_sequence = gold_sequence[:gold_index] + gold_sequence[gold_index+1:close_index+1] + [gold_transition] + gold_sequence[close_index+1:]
+    # Use list slicing efficiently; do not alter behavior
+    updated_sequence = (
+        gold_sequence[:gold_index] +
+        gold_sequence[gold_index+1:close_index+1] +
+        [gold_transition] +
+        gold_sequence[close_index+1:]
+    )
     return updated_sequence
 
 def fix_close_open_correct_open_ambiguous_immediate(*args, **kwargs):
