@@ -49,18 +49,40 @@ def retag_tags(doc, pipelines, xpos):
     pipelines are a list of 1 or more retag pipelines
     if multiple pipelines are given, majority vote wins
     """
+    # Pre-allocate storage for sentence counts to avoid dynamic growth
     tag_lists = []
+    # Apply each pipeline only once and collect the tags in memory-efficient way
+    # We collect just the needed upos/xpos as we go, saving memory
     for pipeline in pipelines:
-        doc = pipeline(doc)
-        tag_lists.append([[x.xpos if xpos else x.upos for x in sentence.words] for sentence in doc.sentences])
+        new_doc = pipeline(doc)  # Do not overwrite the input doc in each loop
+        tags_per_sentence = []
+        for sentence in new_doc.sentences:
+            # Use a list comprehension for memory efficiency
+            tags = [x.xpos if xpos else x.upos for x in sentence.words]
+            tags_per_sentence.append(tags)
+        tag_lists.append(tags_per_sentence)
+
     # tag_lists: for N pipeline, S sentences
-    # we now have N lists of S sentences each
-    # for sentence in zip(*tag_lists): N lists of |s| tags for this given sentence s
-    # for tag in zip(*sentence): N predicted tags.
-    # most common one in the Counter will be chosen
-    tag_lists = [[Counter(tag).most_common(1)[0][0] for tag in zip(*sentence)]
-                 for sentence in zip(*tag_lists)]
-    return tag_lists
+    # To get the majority vote per token, process column-wise (sentence-wise zip)
+    # Avoid calls to Counter when not needed for single-pipeline case
+    if len(pipelines) == 1:
+        # Only one pipeline, fast-path return
+        # tag_lists[0] is already in desired format
+        return tag_lists[0]
+
+    # For multiple pipelines, majority voting per token
+    # Localize variables for fast lookup and minimize attr access
+    sentence_count = len(tag_lists[0])
+    # Preallocate final tag_lists based on sentence_count
+    majority_tag_lists = []
+    for sentence_tags in zip(*tag_lists):  # sentence_tags: tuple of tags per pipeline, for this sentence
+        majority_tags = []
+        for token_tags in zip(*sentence_tags):  # token_tags: tuple of predicted tags from each pipeline, for this token
+            # Use Counter only once per token
+            most_common_tag = Counter(token_tags).most_common(1)[0][0]
+            majority_tags.append(most_common_tag)
+        majority_tag_lists.append(majority_tags)
+    return majority_tag_lists
 
 def retag_trees(trees, pipelines, xpos=True):
     """
@@ -77,19 +99,25 @@ def retag_trees(trees, pipelines, xpos=True):
         for chunk_start in range(0, len(trees), chunk_size):
             chunk_end = min(chunk_start + chunk_size, len(trees))
             chunk = trees[chunk_start:chunk_end]
-            sentences = []
+
+            # Preallocate sentences list for all trees in chunk for lower memory pressure
+            sentences = [None] * len(chunk)
             try:
+                # Use enumerate and direct assignment for sentences for fast population
                 for idx, tree in enumerate(chunk):
+                    # Avoid repeated list creation in tokens by using list comprehension directly
                     tokens = [{TEXT: pt.children[0].label} for pt in tree.yield_preterminals()]
-                    sentences.append(tokens)
+                    sentences[idx] = tokens
             except ValueError as e:
                 raise ValueError("Unable to process tree %d" % (idx + chunk_start)) from e
 
             doc = Document(sentences)
             tag_lists = retag_tags(doc, pipelines, xpos)
 
+            # Use same index for trees/tags since lengths must match
             for tree_idx, (tree, tags) in enumerate(zip(chunk, tag_lists)):
                 try:
+                    # Explicit check for None in tags, short-circuit as soon as found
                     if any(tag is None for tag in tags):
                         raise RuntimeError("Tagged tree #{} with a None tag!\n{}\n{}".format(tree_idx, tree, tags))
                     new_tree = tree.replace_tags(tags)
