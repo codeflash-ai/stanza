@@ -514,7 +514,7 @@ def find_text_idx(sentence):
     Return the index of the # text line or -1
     """
     for idx, line in enumerate(sentence):
-        if line.startswith("# text"):
+        if line and line[0] == "#" and line[:6] == "# text":
             return idx
     return -1
 
