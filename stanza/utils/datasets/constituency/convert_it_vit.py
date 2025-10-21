@@ -315,12 +315,13 @@ def raw_tree(text):
     return trees[0]
 
 def extract_ngrams(sentence, process_func, ngram_len=4):
-    leaf_words = [x for x in process_func(sentence)]
-    leaf_words = ["l'" if x == "l" else x for x in leaf_words]
+    leaf_words = list(process_func(sentence))
+    if "l" in leaf_words:
+        leaf_words = ["l'" if x == "l" else x for x in leaf_words]
     if len(leaf_words) <= ngram_len:
         return [tuple(leaf_words)]
     its = [leaf_words[i:i+len(leaf_words)-ngram_len+1] for i in range(ngram_len)]
-    return [words for words in itertools.zip_longest(*its)]
+    return list(itertools.zip_longest(*its))
 
 def build_ngrams(sentences, process_func, id_func, ngram_len=4):
     """
