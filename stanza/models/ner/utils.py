@@ -57,17 +57,17 @@ def to_bio2(tags):
     Returns:
         new_tags: a list of tags in BIO2 format
     """
-    new_tags = []
+    new_tags = [None] * len(tags)
     for i, tag in enumerate(tags):
         if tag in EMPTY_OR_O_TAG:
-            new_tags.append(tag)
+            new_tags[i] = tag
         elif tag[0] == 'I':
             if i == 0 or tags[i-1] == 'O' or tags[i-1][1:] != tag[1:]:
-                new_tags.append('B' + tag[1:])
+                new_tags[i] = 'B' + tag[1:]
             else:
-                new_tags.append(tag)
+                new_tags[i] = tag
         else:
-            new_tags.append(tag)
+            new_tags[i] = tag
     return new_tags
 
 def basic_to_bio(tags):
