@@ -211,14 +211,26 @@ def get_lemma_dependencies(lang, package):
 
 
 def get_tokenizer_charlm_package(lang, package):
-    return get_charlm_package(lang, package, tokenizer_charlms, default_charlms, default_use_charlm=False)
+    uses_charlm = False
+    if package.endswith("|charlm"):
+        uses_charlm = True
+        package = package[:-7]
+    elif package.endswith("|nocharlm"):
+        package = package[:-10]
+
+    if not uses_charlm:
+        return None
+
+    if lang in tokenizer_charlms and package in tokenizer_charlms[lang]:
+        return tokenizer_charlms[lang][package]
+
+    return default_charlms.get(lang, None)
 
 def get_tokenizer_dependencies(lang, package):
-    dependencies = []
     charlm_package = get_tokenizer_charlm_package(lang, package)
     if charlm_package is not None:
-        dependencies.append({'model': 'forward_charlm', 'package': charlm_package})
-    return dependencies
+        return [{'model': 'forward_charlm', 'package': charlm_package}]
+    return []
 
 def get_depparse_charlm_package(lang, package):
     return get_charlm_package(lang, package, depparse_charlms, default_charlms)
