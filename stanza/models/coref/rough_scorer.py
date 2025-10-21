@@ -30,10 +30,9 @@ class RoughScorer(torch.nn.Module):
         the bilinear output of the current model summed with mention scores.
         """
         # [n_mentions, n_mentions]
-        pair_mask = torch.arange(mentions.shape[0])
+        pair_mask = torch.arange(mentions.shape[0], device=mentions.device)
         pair_mask = pair_mask.unsqueeze(1) - pair_mask.unsqueeze(0)
-        pair_mask = torch.log((pair_mask > 0).to(torch.float))
-        pair_mask = pair_mask.to(mentions.device)
+        pair_mask = torch.where(pair_mask > 0, 0.0, float('-inf'))
 
         bilinear_scores = self.dropout(self.bilinear(mentions)).mm(mentions.T)
 
@@ -56,6 +55,6 @@ class RoughScorer(torch.nn.Module):
             LongTensor of shape [n_mentions, k], top indices
         """
         top_scores, indices = torch.topk(rough_scores,
-                                         k=min(self.k, len(rough_scores)),
+                                         k=min(self.k, rough_scores.size(0)),
                                          dim=1, sorted=False)
         return top_scores, indices, rough_scores
