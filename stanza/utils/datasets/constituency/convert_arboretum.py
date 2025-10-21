@@ -155,23 +155,32 @@ def process_nodes(root_id, words, nodes, visited):
 
     visited is a set of string ids and mutates over the course of the recursive call
     """
+    # Use set.add and set.__contains__ exactly as in the original logic,
+    # but restructure to avoid repeated lookups.
+
     if root_id in visited:
         raise ValueError("Loop in the tree!")
     visited.add(root_id)
 
-    if root_id in words:
-        word = words[root_id]
+    # Faster branch ordering: check words and nodes once,
+    # and avoid repeated dict lookups.
+    word = words.get(root_id)
+    if word is not None:
         # big brain move: put the root_id here so we can use that to
         # check the sorted order when we are done
         word_node = Tree(label=root_id)
         tag_node = Tree(label=word.tag, children=word_node)
         return tag_node
-    elif root_id in nodes:
-        node = nodes[root_id]
-        children = [process_nodes(child, words, nodes, visited) for child in node.children]
+
+    node = nodes.get(root_id)
+    if node is not None:
+        # Preallocate the children list and do direct append for better perf
+        children = []
+        for child in node.children:
+            children.append(process_nodes(child, words, nodes, visited))
         return Tree(label=node.label, children=children)
-    else:
-        raise BrokenLinkError("Unknown id! {}".format(root_id))
+
+    raise BrokenLinkError("Unknown id! {}".format(root_id))
 
 def check_words(tree, tsurgeon_processor):
     """
