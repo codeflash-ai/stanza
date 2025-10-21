@@ -347,7 +347,7 @@ def get_default_pos_package(lang, ud_package):
     return ud_package + "_nocharlm"
 
 def get_default_depparse_package(lang, ud_package):
-    charlm_package = get_depparse_charlm_package(lang, ud_package)
+    charlm_package = get_charlm_package(lang, ud_package, depparse_charlms, default_charlms)
     if charlm_package is not None:
         return ud_package + "_charlm"
     if lang in no_pretrain_languages:
