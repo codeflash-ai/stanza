@@ -114,7 +114,11 @@ def has_space_after_no(piece):
         return False
     if piece == "SpaceAfter=No":
         return True
+    # Optimize by using set lookup for small tag count
     tags = piece.split("|")
+    if len(tags) <= 4:
+        # Usually few; fast path
+        return "SpaceAfter=No" in tags
     return any(t == "SpaceAfter=No" for t in tags)
 
 
@@ -528,32 +532,37 @@ def change_indices(line, delta):
         return line
 
     pieces = line.split("\t")
-    if MWT_RE.match(pieces[0]):
-        indices = pieces[0].split("-")
-        pieces[0] = "%d-%d" % (int(indices[0]) + delta, int(indices[1]) + delta)
-        line = "\t".join(pieces)
-        return line
+    first_piece = pieces[0]
+    if MWT_RE.match(first_piece):
+        indices = first_piece.split("-")
+        # Avoid intermediate variables/objects
+        pieces[0] = f"{int(indices[0]) + delta}-{int(indices[1]) + delta}"
+        return "\t".join(pieces)
 
-    if MWT_OR_COPY_RE.match(pieces[0]):
-        index_pieces = pieces[0].split(".", maxsplit=1)
-        pieces[0] = "%d.%s" % (int(index_pieces[0]) + delta, index_pieces[1])
-    elif not INT_RE.match(pieces[0]):
-        raise NotImplementedError("Unknown index type: %s" % pieces[0])
+    if MWT_OR_COPY_RE.match(first_piece):
+        index_pieces = first_piece.split(".", 1)
+        pieces[0] = f"{int(index_pieces[0]) + delta}.{index_pieces[1]}"
+    elif not INT_RE.match(first_piece):
+        raise NotImplementedError(f"Unknown index type: {first_piece}")
     else:
-        pieces[0] = str(int(pieces[0]) + delta)
-    if pieces[6] != '_':
-        # copy nodes don't have basic dependencies in the es_ancora treebank
-        dep = int(pieces[6])
-        if dep != 0:
-            pieces[6] = str(int(dep) + delta)
-    if pieces[8] != '_':
-        dep_pieces = pieces[8].split(":", maxsplit=1)
+        pieces[0] = str(int(first_piece) + delta)
+    # Only coerce and mutate field 6 if not '_' and dependency is nonzero
+    dep_idx = pieces[6]
+    if dep_idx != '_':
+        dep_val = int(dep_idx)
+        if dep_val != 0:
+            pieces[6] = str(dep_val + delta)
+    # Only mutate additional deps field if it's not '_'
+    adddep_field = pieces[8]
+    if adddep_field != '_':
+        dep_pieces = adddep_field.split(":", 1)
+        # Defensive: check if dep_pieces[1] contains digit (raises NotImplementedError if so)
         if DIGIT_RE.search(dep_pieces[1]):
-            raise NotImplementedError("Need to handle multiple additional deps:\n%s" % line)
-        if int(dep_pieces[0]) != 0:
-            pieces[8] = str(int(dep_pieces[0]) + delta) + ":" + dep_pieces[1]
-    line = "\t".join(pieces)
-    return line
+            raise NotImplementedError(f"Need to handle multiple additional deps:\n{line}")
+        dep0 = int(dep_pieces[0])
+        if dep0 != 0:
+            pieces[8] = f"{dep0 + delta}:{dep_pieces[1]}"
+    return "\t".join(pieces)
 
 def augment_initial_punct(sents, ratio=0.20):
     """
@@ -563,39 +572,47 @@ def augment_initial_punct(sents, ratio=0.20):
     This helps languages such as CA and ES where the models go awry when the initial ¿ is missing.
     """
     new_sents = []
+    random_random = random.random  # Performance: local lookup
+
     for sent in sents:
-        if random.random() > ratio:
+        if random_random() > ratio:
             continue
 
         text_idx = find_text_idx(sent)
+        # Fast fail if '# text' not found
+        if text_idx == -1:
+            continue
         text_line = sent[text_idx]
+        # Quickly skip sentences with no or many '¿'
         if text_line.count("¿") != 1:
-            # only handle sentences with exactly one ¿
             continue
 
-        # find the first line with actual text
+        # Find first non-comment line
         for idx, line in enumerate(sent):
-            if line.startswith("#"):
-                continue
-            break
-        if idx >= len(sent) - 1:
+            if not line.startswith("#"):
+                break
+        else:
+            raise ValueError("Unexpectedly an entire sentence is comments")
+        # Defensive: avoid IndexError
+        if idx >= len(sent):
             raise ValueError("Unexpectedly an entire sentence is comments")
         pieces = line.split("\t")
         if pieces[1] != '¿':
             continue
-        if has_space_after_no(pieces[-1]):
-            replace_text = "¿"
-        else:
-            replace_text = "¿ "
 
+        replace_text = "¿" if has_space_after_no(pieces[-1]) else "¿ "
+        # Remove the ¿-token line and adjust the comment line
         new_sent = sent[:idx] + sent[idx+1:]
-        new_sent[text_idx] = text_line.replace(replace_text, "")
-
-        # now need to update all indices
+        new_sent = list(new_sent)
+        # Only reassign if original #text is still present and contains the pattern
+        if replace_text in new_sent[text_idx]:
+            new_sent[text_idx] = new_sent[text_idx].replace(replace_text, "", 1)
+        # Only need to map change_indices over non-comment lines (comments are unchanged)
+        # But as original code applies to all, keep for correctness
         new_sent = [change_indices(x, -1) for x in new_sent]
         new_sents.append(new_sent)
 
-    if len(new_sents) > 0:
+    if new_sents:
         print("Added %d sentences with the leading ¿ removed" % len(new_sents))
 
     return sents + new_sents
