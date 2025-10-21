@@ -61,8 +61,15 @@ class CoNLL:
         Input: list of token fields loaded from the CoNLL-U format data, where the outmost list represents a list of sentences, and the inside list represents all fields of a token.
         Output: a list of list of dictionaries for each token in each sentence in the document.
         """
+        # Precompute for speed (avoid local lookups)
+        id_field = ID
+        lemma_field = LEMMA
+        text_field = TEXT
+        field_to_idx = FIELD_TO_IDX
+
         doc_dict = []
         doc_empty = []
+
         for sent_idx, sent_conll in enumerate(doc_conll):
             sent_dict = []
             sent_empty = []
@@ -70,15 +77,34 @@ class CoNLL:
                 try:
                     token_dict = CoNLL.convert_conll_token(token_conll)
                 except ValueError as e:
-                    raise CoNLLError("Could not process sentence %d token %d:\n%s\n%s" % (sent_idx, token_idx, token_conll, str(e))) from e
-                if '.' in token_dict[ID]:
-                    token_dict[ID] = tuple(int(x) for x in token_dict[ID].split(".", maxsplit=1))
+                    raise CoNLLError(
+                        "Could not process sentence %d token %d:\n%s\n%s" % (
+                            sent_idx, token_idx, token_conll, str(e))) from e
+
+                token_id = token_dict[id_field]
+                # Fast path: check if '.' or '-' is present in token_id
+                if '.' in token_id:
+                    # Instead of tuple(int(x) for x in ...), use list comprehension once, then convert to tuple
+                    splitted = token_id.split(".", 1)
+                    try:
+                        # Avoid using generator for small lists - list comprehension is sometimes faster
+                        token_dict[id_field] = (int(splitted[0]), int(splitted[1]))
+                    except Exception as e:
+                        raise CoNLLError("Could not process decimal ID %s at sent_idx %d, token_idx %d\nEntire token dict:\n%s" % (token_id, sent_idx, token_idx, token_dict)) from e
                     sent_empty.append(token_dict)
                 else:
+                    splitted = token_id.split("-", 1)
                     try:
-                        token_dict[ID] = tuple(int(x) for x in token_dict[ID].split("-", maxsplit=1))
+                        # Do not split if '-' is not present: provide single integer as tuple
+                        if len(splitted) == 2:
+                            token_dict[id_field] = (int(splitted[0]), int(splitted[1]))
+                        else:
+                            token_dict[id_field] = (int(splitted[0]),)
                     except ValueError as e:
-                        raise CoNLLError("Could not process ID %s at sent_idx %d, token_idx %d\nEntire token dict:\n%s" % (token_dict[ID], sent_idx, token_idx, token_dict)) from e
+                        raise CoNLLError(
+                            "Could not process ID %s at sent_idx %d, token_idx %d\nEntire token dict:\n%s"
+                            % (token_id, sent_idx, token_idx, token_dict)
+                        ) from e
                     sent_dict.append(token_dict)
             doc_dict.append(sent_dict)
             doc_empty.append(sent_empty)
@@ -107,20 +133,34 @@ class CoNLL:
         Input: a list of all CoNLL-U fields for the token.
         Output: a dictionary that maps from field name to value.
         """
+        # For faster lookup, bind FIELD_TO_IDX locally
+        field_to_idx = FIELD_TO_IDX
+        head_field = HEAD
+        feats_field = FEATS
+        text_field = TEXT
+        lemma_field = LEMMA
+
         token_dict = {}
-        for field, field_idx in FIELD_TO_IDX.items():
+
+        # Precompute token fields for speed
+        token_text = token_conll[field_to_idx[text_field]]
+        token_lemma = token_conll[field_to_idx[lemma_field]]
+
+        for field, field_idx in field_to_idx.items():
             value = token_conll[field_idx]
-            if value == '' and field is FEATS:
+            if value == '' and field is feats_field:
                 continue
-            elif value != '_':
-                if field is HEAD:
-                    token_dict[field] = int(value)
-                else:
-                    token_dict[field] = value
+            if value == '_':
+                continue
+            if field is head_field:
+                token_dict[field] = int(value)
+            else:
+                token_dict[field] = value
+
         # special case if text is '_'
-        if token_conll[FIELD_TO_IDX[TEXT]] == '_':
-            token_dict[TEXT] = token_conll[FIELD_TO_IDX[TEXT]]
-            token_dict[LEMMA] = token_conll[FIELD_TO_IDX[LEMMA]]
+        if token_text == '_':
+            token_dict[text_field] = token_text
+            token_dict[lemma_field] = token_lemma
         return token_dict
 
     @staticmethod
