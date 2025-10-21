@@ -513,10 +513,10 @@ def fix_open_open_ambiguous_later(gold_transition, pred_transition, gold_sequenc
     close at the end of the outer constituent
 
     """
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
 
     if pred_transition == gold_transition:
