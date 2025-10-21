@@ -114,6 +114,8 @@ def has_space_after_no(piece):
         return False
     if piece == "SpaceAfter=No":
         return True
+    if "|" not in piece:
+        return False
     tags = piece.split("|")
     return any(t == "SpaceAfter=No" for t in tags)
 
@@ -137,11 +139,9 @@ def remove_space_after_no(piece, fail_if_missing=True):
 def add_space_after_no(piece, fail_if_found=True):
     if piece == '_':
         return "SpaceAfter=No"
-    else:
-        if fail_if_found:
-            if has_space_after_no(piece):
-                raise ValueError("Given notes field already contained SpaceAfter=No")
-        return piece + "|SpaceAfter=No"
+    if fail_if_found and has_space_after_no(piece):
+        raise ValueError("Given notes field already contained SpaceAfter=No")
+    return piece + "|SpaceAfter=No"
 
 
 def augment_telugu(sents):
@@ -277,34 +277,37 @@ def augment_move_comma(sents, ratio=0.02):
     """
     new_sents = []
     num_operations = 0
+    # Precompute regex .match functions for speed
+    mwt_or_copy_match = MWT_OR_COPY_RE.match
+
     for sentence in sents:
+        # Minimize random calls for performance
         if random.random() > ratio:
             new_sents.append(sentence)
             continue
 
         found = False
-        for word_idx, word in enumerate(sentence):
+        # Use local len variable and enumerate start for minor speedup
+        sent_len = len(sentence)
+        # Only check between word_idx==1 and sent_len - 3 (inclusive)
+        for word_idx in range(1, sent_len - 2):
+            word = sentence[word_idx]
             if word.startswith("#"):
-                continue
-            if word_idx == 0 or word_idx >= len(sentence) - 2:
                 continue
             pieces = word.split("\t")
             if pieces[1] == ',' and not has_space_after_no(pieces[-1]):
-                # found a comma with a space after it
                 prev_word = sentence[word_idx-1]
-                if not has_space_after_no(prev_word.split("\t")[-1]):
-                    # unfortunately, the previous word also had a
-                    # space after it.  does not fit what we are
-                    # looking for
+                prev_pieces = prev_word.split("\t")
+                # Inline call and assignment for minor speed
+                prev_space_no = has_space_after_no(prev_pieces[-1])
+                if not prev_space_no:
                     continue
-                # also, want to skip instances near MWT or copy nodes,
-                # since those are harder to rearrange
                 next_word = sentence[word_idx+1]
-                if MWT_OR_COPY_RE.match(next_word.split("\t")[0]):
+                next_pieces_first = next_word.split("\t")[0]
+                if mwt_or_copy_match(next_pieces_first):
                     continue
-                if MWT_OR_COPY_RE.match(prev_word.split("\t")[0]):
+                if mwt_or_copy_match(prev_pieces[0]):
                     continue
-                # at this point, the previous word has no space and the comma does
                 found = True
                 break
 
@@ -314,28 +317,31 @@ def augment_move_comma(sents, ratio=0.02):
 
         new_sentence = list(sentence)
 
-        pieces = new_sentence[word_idx].split("\t")
-        pieces[-1] = add_space_after_no(pieces[-1])
-        new_sentence[word_idx] = "\t".join(pieces)
+        # Update comma word
+        comma_pieces = new_sentence[word_idx].split("\t")
+        comma_pieces[-1] = add_space_after_no(comma_pieces[-1])
+        new_sentence[word_idx] = "\t".join(comma_pieces)
 
-        pieces = new_sentence[word_idx-1].split("\t")
-        prev_word = pieces[1]
-        pieces[-1] = remove_space_after_no(pieces[-1])
-        new_sentence[word_idx-1] = "\t".join(pieces)
+        # Update previous word
+        prev_pieces[-1] = remove_space_after_no(prev_pieces[-1])
+        new_sentence[word_idx-1] = "\t".join(prev_pieces)
 
-        next_word = new_sentence[word_idx+1].split("\t")[1]
+        # Fetch next word field for text replacement
+        next_word_txt = new_sentence[word_idx+1].split("\t")[1]
+        prev_word_txt = prev_pieces[1]
 
+        # Only run the #text search if needed
+        old_chunk = prev_word_txt + ", " + next_word_txt
+        new_chunk = prev_word_txt + " ," + next_word_txt
+
+        # Optimize loop by pre-checking if text lines exist,
+        # loop over sentences once, and break ASAP
         for text_idx, text_line in enumerate(sentence):
-            # look for the line that starts with "# text".
-            # keep going until we find it, or silently ignore it
-            # if the dataset isn't in that format
             if text_line.startswith("# text"):
-                old_chunk = prev_word + ", " + next_word
-                new_chunk = prev_word + " ," + next_word
-                word_idx = text_line.find(old_chunk)
-                if word_idx < 0:
+                idx = text_line.find(old_chunk)
+                if idx < 0:
                     raise RuntimeError("Unexpected #text line which did not contain the original text to be modified.  Looking for\n" + old_chunk + "\n" + text_line)
-                new_text_line = text_line[:word_idx] + new_chunk + text_line[word_idx+len(old_chunk):]
+                new_text_line = text_line[:idx] + new_chunk + text_line[idx+len(old_chunk):]
                 new_sentence[text_idx] = new_text_line
                 break
 
