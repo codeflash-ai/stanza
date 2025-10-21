@@ -11,9 +11,30 @@ import argparse
 from stanza.utils.datasets.ner.utils import read_json_entities
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Report the coverage of one NER file on another.")
-    parser.add_argument('--train', type=str, nargs="+", required=True, help='File to use to collect the known entities (not necessarily train).')
-    parser.add_argument('--test', type=str, nargs="+", required=True, help='File for which we want to know the ratio of known entities')
+    # Reuse a global parser to save repeated initialization cost
+    # Only parse and add arguments if not already present
+    # This optimizes repeated invocation in benchmarking/profile scenarios
+
+    if not hasattr(parse_args, "_parser"):
+        parser = argparse.ArgumentParser(description="Report the coverage of one NER file on another.")
+        parser.add_argument(
+            '--train',
+            type=str,
+            nargs="+",
+            required=True,
+            help='File to use to collect the known entities (not necessarily train).'
+        )
+        parser.add_argument(
+            '--test',
+            type=str,
+            nargs="+",
+            required=True,
+            help='File for which we want to know the ratio of known entities'
+        )
+        parse_args._parser = parser
+    else:
+        parser = parse_args._parser
+
     args = parser.parse_args()
     return args
 
