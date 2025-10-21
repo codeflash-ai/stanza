@@ -9,6 +9,7 @@ import torch
 
 import stanza.models.common.seq2seq_constant as constant
 from stanza.models.common.doc import HEAD, ID, UPOS
+import numpy as np
 
 logger = logging.getLogger('stanza')
 
@@ -18,16 +19,14 @@ def map_to_ids(tokens, vocab):
 
 def get_long_tensor(tokens_list, batch_size, pad_id=constant.PAD_ID):
     """ Convert (list of )+ tokens to a padded LongTensor. """
-    sizes = []
-    x = tokens_list
-    while isinstance(x[0], list):
-        sizes.append(max(len(y) for y in x))
-        x = [z for y in x for z in y]
-    # TODO: pass in a device parameter and put it directly on the relevant device?
-    # that might be faster than creating it and then moving it
-    tokens = torch.LongTensor(batch_size, *sizes).fill_(pad_id)
+
+    # Calculate the pad length (maximum sequence length)
+    pad_len = max(len(s) for s in tokens_list)
+    # Preallocate a numpy array for efficiency
+    arr = np.full((batch_size, pad_len), pad_id, dtype=np.int64)
     for i, s in enumerate(tokens_list):
-        tokens[i, :len(s)] = torch.LongTensor(s)
+        arr[i, :len(s)] = s
+    tokens = torch.from_numpy(arr)
     return tokens
 
 def get_float_tensor(features_list, batch_size):
