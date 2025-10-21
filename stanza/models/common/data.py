@@ -13,7 +13,9 @@ from stanza.models.common.doc import HEAD, ID, UPOS
 logger = logging.getLogger('stanza')
 
 def map_to_ids(tokens, vocab):
-    ids = [vocab[t] if t in vocab else constant.UNK_ID for t in tokens]
+    vocab_get = vocab.get
+    unk_id = constant.UNK_ID
+    ids = [vocab_get(t, unk_id) for t in tokens]
     return ids
 
 def get_long_tensor(tokens_list, batch_size, pad_id=constant.PAD_ID):
