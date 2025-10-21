@@ -86,8 +86,7 @@ def get_augment_ratio(train_data, should_augment_predicate, can_augment_predicat
 
 
 def should_augment_nopunct_predicate(sentence):
-    last_word = sentence[-1]
-    return last_word.get(UPOS, None) == 'PUNCT'
+    return sentence[-1].get(UPOS, None) == 'PUNCT'
 
 def can_augment_nopunct_predicate(sentence):
     """
