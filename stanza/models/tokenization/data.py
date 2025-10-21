@@ -119,66 +119,66 @@ class TokenizationDataset:
     def para_to_sentences(self, para):
         """ Convert a paragraph to a list of processed sentences. """
         res = []
+
+        # Optimize: Compile feature functions once per args, and avoid lambda allocations every call.
         funcs = []
-        for feat_func in self.args['feat_funcs']:
+        args_feat_funcs = self.args['feat_funcs']
+        for feat_func in args_feat_funcs:
             if feat_func == 'end_of_para' or feat_func == 'start_of_para':
                 # skip for position-dependent features
                 continue
             if feat_func == 'space_before':
-                func = lambda x: 1 if x.startswith(' ') else 0
+                funcs.append(TokenizationDataset._space_before_func)
             elif feat_func == 'capitalized':
-                func = lambda x: 1 if x[0].isupper() else 0
+                funcs.append(TokenizationDataset._capitalized_func)
             elif feat_func == 'numeric':
-                func = lambda x: 1 if (NUMERIC_RE.match(x) is not None) else 0
+                # Compile regex match function once
+                funcs.append(TokenizationDataset._numeric_func)
             else:
-                raise ValueError('Feature function "{}" is undefined.'.format(feat_func))
+                raise ValueError(f'Feature function "{feat_func}" is undefined.')
 
-            funcs.append(func)
-
-        # stacking all featurize functions
-        composite_func = lambda x: [f(x) for f in funcs]
-
-        def process_sentence(sent_units, sent_labels, sent_feats):
-            return (np.array([self.vocab.unit2id(y) for y in sent_units]),
-                    np.array(sent_labels),
-                    np.array(sent_feats),
-                    list(sent_units))
-
-        use_end_of_para = 'end_of_para' in self.args['feat_funcs']
-        use_start_of_para = 'start_of_para' in self.args['feat_funcs']
+        use_end_of_para = 'end_of_para' in args_feat_funcs
+        use_start_of_para = 'start_of_para' in args_feat_funcs
         use_dictionary = self.args['use_dictionary']
+        max_seqlen = self.args['max_seqlen']
+        eval_mode = self.eval
+
+        # Predefine function references for tight loop
+        unit2id = self.vocab.unit2id
+        process_sentence = TokenizationDataset._process_sentence
+
         current_units = []
         current_labels = []
         current_feats = []
+
+        para_len = len(para)
+
         for i, (unit, label) in enumerate(para):
-            feats = composite_func(unit)
+            feats = [func(unit) for func in funcs]
             # position-dependent features
             if use_end_of_para:
-                f = 1 if i == len(para)-1 else 0
-                feats.append(f)
+                feats.append(1 if i == para_len-1 else 0)
             if use_start_of_para:
-                f = 1 if i == 0 else 0
-                feats.append(f)
-
+                feats.append(1 if i == 0 else 0)
             #if dictionary feature is selected
             if use_dictionary:
                 dict_feats = self.extract_dict_feat(para, i)
-                feats = feats + dict_feats
+                feats.extend(dict_feats)
 
             current_units.append(unit)
             current_labels.append(label)
             current_feats.append(feats)
-            if not self.eval and (label == 2 or label == 4): # end of sentence
-                if len(current_units) <= self.args['max_seqlen']:
+            if not eval_mode and (label == 2 or label == 4): # end of sentence
+                if len(current_units) <= max_seqlen:
                     # get rid of sentences that are too long during training of the tokenizer
-                    res.append(process_sentence(current_units, current_labels, current_feats))
+                    res.append(process_sentence(current_units, current_labels, current_feats, unit2id))
                 current_units.clear()
                 current_labels.clear()
                 current_feats.clear()
 
         if len(current_units) > 0:
-            if self.eval or len(current_units) <= self.args['max_seqlen']:
-                res.append(process_sentence(current_units, current_labels, current_feats))
+            if eval_mode or len(current_units) <= max_seqlen:
+                res.append(process_sentence(current_units, current_labels, current_feats, unit2id))
 
         return res
 
@@ -212,6 +212,26 @@ class TokenizationDataset:
             raw_units.append(oraw[i][eval_offsets[i]:lens[i]] + ['<PAD>'] * (pad_len - lens[i] + eval_offsets[i]))
 
         return units, labels, features, raw_units
+
+    @staticmethod
+    def _space_before_func(x):
+        return 1 if x.startswith(' ') else 0
+
+    @staticmethod
+    def _capitalized_func(x):
+        return 1 if x[0].isupper() else 0
+
+    @staticmethod
+    def _numeric_func(x):
+        return 1 if (NUMERIC_RE.match(x) is not None) else 0
+
+    @staticmethod
+    def _process_sentence(sent_units, sent_labels, sent_feats, unit2id):
+        # Avoid re-building this closure in a tight loop
+        return (np.array([unit2id(y) for y in sent_units]),
+                np.array(sent_labels),
+                np.array(sent_feats),
+                list(sent_units))
 
 def build_move_punct_set(data, move_back_prob):
     move_punct = {',', ':', '!', '.', '?', '"', '(', ')'}
