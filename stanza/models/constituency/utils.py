@@ -248,10 +248,23 @@ def build_scheduler(args, optimizer, first_optimizer=False):
 
     #scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
+    # Avoid dictionary lookups inside the constructor for better performance
+    factor = args['learning_rate_factor']
+    patience = args['learning_rate_patience']
+    cooldown = args['learning_rate_cooldown']
     if first_optimizer:
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args['learning_rate_factor'], patience=args['learning_rate_patience'], cooldown=args['learning_rate_cooldown'], min_lr=args['stage1_learning_rate_min_lr'])
+        min_lr = args['stage1_learning_rate_min_lr']
     else:
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args['learning_rate_factor'], patience=args['learning_rate_patience'], cooldown=args['learning_rate_cooldown'], min_lr=args['learning_rate_min_lr'])
+        min_lr = args['learning_rate_min_lr']
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='max', 
+        factor=factor, 
+        patience=patience, 
+        cooldown=cooldown, 
+        min_lr=min_lr
+    )
     return scheduler
 
 def initialize_linear(linear, nonlinearity, bias):
