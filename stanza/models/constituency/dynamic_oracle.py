@@ -99,20 +99,31 @@ def find_in_order_constituent_end(gold_sequence, cur_index):
     also return when there is a Shift when count == 0.  That way, we
     return the first block of things we know attach to the left
     """
+    # Cache type objects and local variables for faster loop performance
+    OpenConstituentType = OpenConstituent
+    CloseConstituentType = CloseConstituent
+    ShiftType = Shift
+    seq = gold_sequence  # local alias for faster access
+    seq_len = len(seq)
+
     count = 0
     saw_shift = False
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-            if count == -1: return cur_index
-        elif isinstance(gold_sequence[cur_index], Shift):
+    idx = cur_index
+    while idx < seq_len:
+        v = seq[idx]
+        vtype = type(v)
+        if vtype is OpenConstituentType:
+            count += 1
+        elif vtype is CloseConstituentType:
+            count -= 1
+            if count == -1:
+                return idx
+        elif vtype is ShiftType:
             if saw_shift and count == 0:
-                return cur_index
+                return idx
             else:
                 saw_shift = True
-        cur_index = cur_index + 1
+        idx += 1
     return None
 
 class DynamicOracle():
