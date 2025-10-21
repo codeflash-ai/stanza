@@ -25,14 +25,22 @@ from stanza.resources.default_packages import *
 from stanza.utils.datasets.prepare_lemma_classifier import DATASET_MAPPING as LEMMA_CLASSIFIER_DATASETS
 from stanza.utils.get_tqdm import get_tqdm
 
+_DEFAULT_INPUT_DIR = f"/u/nlp/software/stanza/models/current-models-{__resources_version__}"
+
+_DEFAULT_OUTPUT_DIR = f"/u/nlp/software/stanza/models/{__resources_version__}"
+
 tqdm = get_tqdm()
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, default="/u/nlp/software/stanza/models/current-models-%s" % __resources_version__, help='Input dir for various models.  Defaults to the recommended home on the nlp cluster')
-    parser.add_argument('--output_dir', type=str, default="/u/nlp/software/stanza/models/%s" % __resources_version__, help='Output dir for various models.')
-    parser.add_argument('--packages_only', action='store_true', default=False, help='Only build the package maps instead of rebuilding everything')
-    parser.add_argument('--lang', type=str, default=None, help='Only process this language or a comma-separated list of languages.  If left blank, will prepare all languages.  To use this argument, a previous prepared resources with all of the languages is necessary.')
+    if not hasattr(parse_args, "_parser"):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--input_dir', type=str, default=_DEFAULT_INPUT_DIR, help='Input dir for various models.  Defaults to the recommended home on the nlp cluster')
+        parser.add_argument('--output_dir', type=str, default=_DEFAULT_OUTPUT_DIR, help='Output dir for various models.')
+        parser.add_argument('--packages_only', action='store_true', default=False, help='Only build the package maps instead of rebuilding everything')
+        parser.add_argument('--lang', type=str, default=None, help='Only process this language or a comma-separated list of languages.  If left blank, will prepare all languages.  To use this argument, a previous prepared resources with all of the languages is necessary.')
+        parse_args._parser = parser
+    else:
+        parser = parse_args._parser
     args = parser.parse_args()
     args.input_dir = os.path.abspath(args.input_dir)
     args.output_dir = os.path.abspath(args.output_dir)
