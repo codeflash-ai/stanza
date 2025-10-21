@@ -231,10 +231,17 @@ class UDProcessor(Processor):
     @staticmethod
     def filter_out_option(option):
         """ Filter out non-processor configurations """
-        options_to_filter = ['device', 'cpu', 'cuda', 'dev_conll_gold', 'epochs', 'lang', 'mode', 'save_name', 'shorthand']
-        if option.endswith('_file') or option.endswith('_dir'):
+        # Hoist options_to_filter to a set for O(1) lookups and cache as class-level singleton
+        # Precompute tuple for endswith argument, avoids repeated allocation and improves performance
+        if not hasattr(UDProcessor, '_options_to_filter_set'):
+            UDProcessor._options_to_filter_set = {
+                'device', 'cpu', 'cuda', 'dev_conll_gold', 'epochs', 'lang', 'mode', 'save_name', 'shorthand'
+            }
+            UDProcessor._endswith_tuple = ('_file', '_dir')
+
+        if option.endswith(UDProcessor._endswith_tuple):
             return True
-        elif option in options_to_filter:
+        elif option in UDProcessor._options_to_filter_set:
             return True
         else:
             return False
