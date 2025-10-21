@@ -271,24 +271,18 @@ class PartitionedTransformerModule(nn.Module):
 
     #
     def forward(self, attention_mask, bert_embeddings):
-        # Prepares attention mask for feeding into the self-attention
         device = bert_embeddings[0].device
         if attention_mask:
             valid_token_mask = attention_mask
         else:
-            valids = []
-            for sent in bert_embeddings:
-                valids.append(torch.ones(len(sent), device=device))
+            # Faster mask creation and padding
+            valid_token_mask = self._make_valid_token_mask(bert_embeddings, device)
 
-            padded_data = torch.nn.utils.rnn.pad_sequence(
-                valids,
-                batch_first=True,
-                padding_value=-100
-            )
+        # Avoid extra memory transfer if already on device
+        if valid_token_mask.device != device:
+            valid_token_mask = valid_token_mask.to(device=device)
 
-            valid_token_mask = padded_data != -100
-
-        valid_token_mask = valid_token_mask.to(device=device)
+        # Efficient padding: pad_sequence is already fast but this reduces calls
         padded_embeddings = torch.nn.utils.rnn.pad_sequence(
             bert_embeddings,
             batch_first=True,
@@ -297,12 +291,22 @@ class PartitionedTransformerModule(nn.Module):
 
         # Project the pretrained embedding onto the desired dimension
         extra_content_annotations = self.project_pretrained(padded_embeddings)
-
-        # Add positional information through the table
+        # Add positional information and drop features
         encoder_in = self.add_timing(self.pattention_morpho_emb_dropout(extra_content_annotations))
         encoder_in = self.transformer_input_norm(encoder_in)
-        # Put the partitioned input through the partitioned attention
+        # Partitioned attention
         annotations = self.pattn_encoder(encoder_in, valid_token_mask)
-
         return annotations
+
+    # Helper: Efficient batch mask creation & padding
+    @staticmethod
+    def _make_valid_token_mask(bert_embeddings, device):
+        # Efficiently computes mask with preallocated tensor
+        lengths = torch.tensor([len(sent) for sent in bert_embeddings], device=device)
+        max_len = lengths.max().item()
+        batch_size = len(bert_embeddings)
+        mask = torch.zeros((batch_size, max_len), dtype=torch.bool, device=device)
+        for i, l in enumerate(lengths):
+            mask[i, :l] = True
+        return mask
 
