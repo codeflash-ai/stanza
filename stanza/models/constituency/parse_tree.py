@@ -61,7 +61,9 @@ class Tree(StanzaObject):
         return len(self.children) == 0
 
     def is_preterminal(self):
-        return len(self.children) == 1 and len(self.children[0].children) == 0
+        # Cache attrs and avoid double lookups
+        children = self.children
+        return len(children) == 1 and not children[0].children
 
     def yield_preterminals(self):
         """
