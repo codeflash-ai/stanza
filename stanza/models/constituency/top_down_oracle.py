@@ -350,38 +350,60 @@ def fix_close_shift(gold_transition, pred_transition, gold_sequence, gold_index,
     count_opens is an option to make it easy to count with or without
       Open as different oracle fixes
     """
-    if not isinstance(pred_transition, Shift):
+    # Fastest exit possible for most calls
+    if type(pred_transition) is not Shift:
+        return None
+    if type(gold_transition) is not CloseConstituent:
         return None
 
-    if not isinstance(gold_transition, CloseConstituent):
-        return None
-
+    seq = gold_sequence
+    gi = gold_index
+    seq_len = len(seq)
     num_closes = 0
-    while isinstance(gold_sequence[gold_index + num_closes], CloseConstituent):
+    # Loop: Find how many consecutive CloseConstituents
+    idx = gi
+    get_close = CloseConstituent
+    while idx < seq_len and type(seq[idx]) is get_close:
         num_closes += 1
+        idx += 1
 
-    # We may allow unary transitions here
-    # the opens will be lost in the repaired sequence
+    # count_opens is infrequent, so keep this fast when disabled
     num_opens = 0
+    get_open = OpenConstituent
     if count_opens:
-        while isinstance(gold_sequence[gold_index + num_closes + num_opens], OpenConstituent):
+        # Find consecutive OpenConstituents following CloseConstituents
+        while idx < seq_len and type(seq[idx]) is get_open:
             num_opens += 1
+            idx += 1
 
-    if not isinstance(gold_sequence[gold_index + num_closes + num_opens], Shift):
+    # Next expected: Shift
+    if idx >= seq_len or type(seq[idx]) is not Shift:
         if count_opens:
-            raise AssertionError("Should have found a Shift after a sequence of Opens or a Close with no Open.  Started counting at %d in sequence %s" % (gold_index, gold_sequence))
+            raise AssertionError("Should have found a Shift after a sequence of Opens or a Close with no Open.  Started counting at %d in sequence %s" % (gi, seq))
         return None
 
-    if not isinstance(gold_sequence[gold_index + num_closes + num_opens + 1], CloseConstituent):
+    # Next expected: CloseConstituent
+    idx += 1
+    if idx >= seq_len or type(seq[idx]) is not get_close:
         return None
-    for idx in range(num_opens):
-        if not isinstance(gold_sequence[gold_index + num_closes + num_opens + idx + 1], CloseConstituent):
+
+    # For each counted Open, we expect a CloseConstituent after this
+    next_idx = idx
+    for _ in range(num_opens):
+        if next_idx >= seq_len or type(seq[next_idx]) is not get_close:
             return None
+        next_idx += 1
 
-    # Now we know it is Close x num_closes, Shift, Close
-    # Since we have erroneously predicted a Shift now, the best we can
-    # do is to follow that, then add num_closes Closes
-    updated_sequence = gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index:gold_index+num_closes] + gold_sequence[gold_index+num_closes+num_opens*2+1:]
+    # Now build the resulting sequence efficiently
+    # gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index:gold_index+num_closes] + gold_sequence[gold_index+num_closes+num_opens*2+1:]
+
+    # Save local bounds
+    pre = seq[:gi]
+    closes = seq[gi:gi+num_closes]
+    skip = gi + num_closes + num_opens*2 + 1
+    tail = seq[skip:] if skip < seq_len else []
+
+    updated_sequence = pre + [pred_transition] + closes + tail
     return updated_sequence
 
 def fix_close_shift_with_opens(*args, **kwargs):
