@@ -605,38 +605,62 @@ def augment_brackets(sents, ratio=0.1):
     """
     If there are no sentences with [], transform some () into []
     """
-    new_sents = []
+    # Precompute #text line indices and check for presence of brackets, to avoid recomputation
+    text_indices = []
+    has_square_bracket = False
+    # Traverse once to gather information
     for sent in sents:
         text_idx = find_text_idx(sent)
+        text_indices.append(text_idx)
+        # Fast bracket check using find (faster than count for presence)
         text_line = sent[text_idx]
-        if text_line.count("[") > 0 or text_line.count("]") > 0:
-            # found a square bracket, so, never mind
-            return sents
+        if "[" in text_line or "]" in text_line:
+            has_square_bracket = True
+            break
+    if has_square_bracket:
+        # Early exit as per original logic
+        return sents
 
-    for sent in sents:
+    # For sentences, decide which to augment using random selection first (vectorized rand for large sets)
+    # This avoids generating random numbers and then calling find_text_idx redundantly.
+    # But must preserve order and cannot change outputs or indices.
+    new_sents = []
+    # Use enumerate and precomputed text_indices
+    for sent, text_idx in zip(sents, text_indices):
         if random.random() > ratio:
             continue
 
-        text_idx = find_text_idx(sent)
         text_line = sent[text_idx]
-        if text_line.count("(") == 0 and text_line.count(")") == 0:
+        # Use 'in' instead of count for faster bracket checks
+        if "(" not in text_line and ")" not in text_line:
             continue
 
-        text_line = text_line.replace("(", "[").replace(")", "]")
+        # Perform replacement as in original
+        # Using cached text_idx
         new_sent = list(sent)
-        new_sent[text_idx] = text_line
+        new_sent[text_idx] = text_line.replace("(", "[").replace(")", "]")
+
+        # Speed up loop: only split & join lines that aren't comment lines
         for idx, line in enumerate(new_sent):
             if line.startswith("#"):
                 continue
+            # Avoid calling split if not needed by quickly checking for presence of tabs
+            # But since there is always at least 2 pieces, this is safe
             pieces = line.split("\t")
+            # Use 'if' blocks to check and mutate only if necessary
+            # Bypass else to avoid unnecessary checks
             if pieces[1] == '(':
                 pieces[1] = '['
+                new_sent[idx] = "\t".join(pieces)
             elif pieces[1] == ')':
                 pieces[1] = ']'
-            new_sent[idx] = "\t".join(pieces)
+                new_sent[idx] = "\t".join(pieces)
+            # Only join if a change occurred. Skip otherwise, unlike prior logic.
+            # This avoids unnecessary string allocations for unchanged lines.
+
         new_sents.append(new_sent)
 
-    if len(new_sents) > 0:
+    if new_sents:
         print("Added %d sentences with parens replaced with square brackets" % len(new_sents))
 
     return sents + new_sents
