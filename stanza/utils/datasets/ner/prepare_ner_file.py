@@ -6,16 +6,20 @@ input column format data, the token is always in the first column, while the NER
 import argparse
 import json
 
+_parser = None
+
 MIN_NUM_FIELD = 2
 MAX_NUM_FIELD = 5
 
 DOC_START_TOKEN = '-DOCSTART-'
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Convert the conll03 format data into conllu format.")
-    parser.add_argument('input', help='Input conll03 format data filename.')
-    parser.add_argument('output', help='Output json filename.')
-    args = parser.parse_args()
+    global _parser
+    if _parser is None:
+        _parser = argparse.ArgumentParser(description="Convert the conll03 format data into conllu format.")
+        _parser.add_argument('input', help='Input conll03 format data filename.')
+        _parser.add_argument('output', help='Output json filename.')
+    args = _parser.parse_args()
     return args
 
 def main():
