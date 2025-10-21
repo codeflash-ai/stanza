@@ -25,6 +25,8 @@ from stanza.resources.default_packages import *
 from stanza.utils.datasets.prepare_lemma_classifier import DATASET_MAPPING as LEMMA_CLASSIFIER_DATASETS
 from stanza.utils.get_tqdm import get_tqdm
 
+_KNOWN_NICKNAMES_SET = set(known_nicknames())
+
 tqdm = get_tqdm()
 
 def parse_args():
@@ -106,6 +108,7 @@ def split_package(package, default_use_charlm=True):
     if package.endswith("_finetuned"):
         package = package[:-10]
 
+    # Check suffix patterns up front.
     if package.endswith("_nopretrain"):
         package = package[:-11]
         return package, False, False
@@ -115,15 +118,16 @@ def split_package(package, default_use_charlm=True):
     if package.endswith("_charlm"):
         package = package[:-7]
         return package, True, True
+
+    # Find the last underscore just once
     underscore = package.rfind("_")
     if underscore >= 0:
-        # +1 to skip the underscore
-        nickname = package[underscore+1:]
-        if nickname in known_nicknames():
+        nickname = package[underscore+1:]  # extract the tail after the last underscore
+        # Use precomputed set for O(1) lookup
+        if nickname in _KNOWN_NICKNAMES_SET:
             return package[:underscore], True, True
 
-    # guess it was a model which wasn't built with the new naming convention of putting the pretrain type at the end
-    # assume WV and charlm... if the language / package doesn't allow for one, that should be caught later
+    # Package doesn't match any convention: fallback to defaults
     return package, True, default_use_charlm
 
 def get_pretrain_package(lang, package, model_pretrains, default_pretrains):
@@ -188,7 +192,7 @@ def get_lemma_pretrain_package(lang, package):
         # currently the contextual lemma classifier is only active
         # for the charlm lemmatizers
         return None
-    if "%s_%s" % (lang, package) not in LEMMA_CLASSIFIER_DATASETS:
+    if f"{lang}_{package}" not in LEMMA_CLASSIFIER_DATASETS:
         return None
     return get_pretrain_package(lang, package, {}, default_pretrains)
 
