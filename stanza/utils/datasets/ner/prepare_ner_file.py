@@ -65,13 +65,20 @@ def load_conll03(filename, skip_doc_start=True):
 def process_cache(cached_lines):
     tokens = []
     ner_tags = []
+    append_token = tokens.append
+    append_tag = ner_tags.append
+    min_field = MIN_NUM_FIELD
+    max_field = MAX_NUM_FIELD
+
+    # Pre-bind frequently used methods and constants to local variables for faster access
     for line in cached_lines:
         array = line.split("\t")
-        if len(array) < MIN_NUM_FIELD:
+        if len(array) < min_field:
             array = line.split()
-        assert len(array) >= MIN_NUM_FIELD and len(array) <= MAX_NUM_FIELD, "Got unexpected line length: {}".format(array)
-        tokens.append(array[0])
-        ner_tags.append(array[-1])
+        length = len(array)
+        assert length >= min_field and length <= max_field, "Got unexpected line length: {}".format(array)
+        append_token(array[0])
+        append_tag(array[-1])
     return (tokens, ner_tags)
 
 if __name__ == '__main__':
