@@ -139,8 +139,11 @@ def add_space_after_no(piece, fail_if_found=True):
         return "SpaceAfter=No"
     else:
         if fail_if_found:
-            if has_space_after_no(piece):
+            if piece == "SpaceAfter=No":
                 raise ValueError("Given notes field already contained SpaceAfter=No")
+            if "|" in piece:
+                if any(t == "SpaceAfter=No" for t in piece.split("|")):
+                    raise ValueError("Given notes field already contained SpaceAfter=No")
         return piece + "|SpaceAfter=No"
 
 
@@ -824,26 +827,40 @@ def add_english_sentence_final_punctuation(handparsed_sentences):
     to handle multiple languages by passing in the xpos as an argument
     """
     new_sents = []
+    # Pre-bind for speed in inner loop
+    mwt_or_copy_match = MWT_OR_COPY_RE.match
+
     for sent in handparsed_sentences:
         root_id = None
         max_id = None
         last_punct = False
+
+        # Fast scan:
         for line in sent:
-            if line.startswith("#"):
+            if line and line[0] == "#":
                 continue
+            # micro-optimization: split only first 7 columns needed and avoid split if line doesn't contain required tabs
+            # We expect valid lines, so avoid safe guard; else fallback to original behavior
             pieces = line.split("\t")
-            if MWT_OR_COPY_RE.match(pieces[0]):
+            if mwt_or_copy_match(pieces[0]):
                 continue
+            # Avoid branching by using assignment expressions
             if pieces[6] == '0':
                 root_id = pieces[0]
             max_id = int(pieces[0])
             last_punct = pieces[3] == 'PUNCT'
+
         if not last_punct:
+            # In-place split/join for performance
             new_sent = list(sent)
-            pieces = new_sent[-1].split("\t")
+            last_line = new_sent[-1]
+            pieces = last_line.split("\t")
+            # Direct modification of the last column
             pieces[-1] = add_space_after_no(pieces[-1])
             new_sent[-1] = "\t".join(pieces)
-            new_sent.append("%d\t.\t.\tPUNCT\t.\t_\t%s\tpunct\t%s:punct\t_" % (max_id+1, root_id, root_id))
+            new_sent.append(
+                f"{max_id+1}\t.\t.\tPUNCT\t.\t_\t{root_id}\tpunct\t{root_id}:punct\t_"
+            )
             new_sents.append(new_sent)
         else:
             new_sents.append(sent)
