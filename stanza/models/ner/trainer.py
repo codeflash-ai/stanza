@@ -36,28 +36,36 @@ def fix_singleton_tags(tags):
     """
     If there are any singleton B- or E- tags, convert them to S-
     """
+    # Convert tags to list if not already, for mutable operations
     new_tags = list(tags)
-    # first update all I- tags at the start or end of sequence to B- or E- as appropriate
-    for idx, tag in enumerate(new_tags):
-        if (tag.startswith("I-") and
-            (idx == len(new_tags) - 1 or
-             (new_tags[idx+1] != "I-" + tag[2:] and new_tags[idx+1] != "E-" + tag[2:]))):
-            new_tags[idx] = "E-" + tag[2:]
-        if (tag.startswith("I-") and
-            (idx == 0 or
-             (new_tags[idx-1] != "B-" + tag[2:] and new_tags[idx-1] != "I-" + tag[2:]))):
-            new_tags[idx] = "B-" + tag[2:]
-    # now make another pass through the data to update any singleton tags,
-    # including ones which were turned into singletons by the previous operation
-    for idx, tag in enumerate(new_tags):
-        if (tag.startswith("B-") and
-            (idx == len(new_tags) - 1 or
-             (new_tags[idx+1] != "I-" + tag[2:] and new_tags[idx+1] != "E-" + tag[2:]))):
-            new_tags[idx] = "S-" + tag[2:]
-        if (tag.startswith("E-") and
-            (idx == 0 or
-             (new_tags[idx-1] != "B-" + tag[2:] and new_tags[idx-1] != "I-" + tag[2:]))):
-            new_tags[idx] = "S-" + tag[2:]
+    n = len(new_tags)
+
+    # Precompute slices for fast lookups
+    # First pass: fix I- tags at the start/end or adjoining segments
+    for idx in range(n):
+        tag = new_tags[idx]
+        if tag.startswith("I-"):
+            suffix = tag[2:]
+            # Check if this is at the end or the next is not part of the same entity
+            if idx == n - 1 or (next_tag := new_tags[idx+1])[:2] not in ("I-", "E-") or next_tag[2:] != suffix:
+                new_tags[idx] = "E-" + suffix
+            # Check if this is at the start or the previous is not a valid preceding tag
+            if idx == 0 or (prev_tag := new_tags[idx-1])[:2] not in ("B-", "I-") or prev_tag[2:] != suffix:
+                new_tags[idx] = "B-" + suffix
+
+    # Second pass: update any singleton B- or E- tags
+    for idx in range(n):
+        tag = new_tags[idx]
+        if tag.startswith("B-"):
+            suffix = tag[2:]
+            # Singleton if at the end or the next is not a valid continuing tag
+            if idx == n - 1 or (next_tag := new_tags[idx+1])[:2] not in ("I-", "E-") or next_tag[2:] != suffix:
+                new_tags[idx] = "S-" + suffix
+        elif tag.startswith("E-"):
+            suffix = tag[2:]
+            # Singleton if at the start or the previous is not a valid preceding tag
+            if idx == 0 or (prev_tag := new_tags[idx-1])[:2] not in ("B-", "I-") or prev_tag[2:] != suffix:
+                new_tags[idx] = "S-" + suffix
     return new_tags
 
 class Trainer(BaseTrainer):
