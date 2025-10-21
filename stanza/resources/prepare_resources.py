@@ -24,6 +24,7 @@ from stanza.resources.default_packages import PACKAGES, TRANSFORMERS, TRANSFORME
 from stanza.resources.default_packages import *
 from stanza.utils.datasets.prepare_lemma_classifier import DATASET_MAPPING as LEMMA_CLASSIFIER_DATASETS
 from stanza.utils.get_tqdm import get_tqdm
+from functools import lru_cache
 
 tqdm = get_tqdm()
 
@@ -139,15 +140,20 @@ def get_pretrain_package(lang, package, model_pretrains, default_pretrains):
     raise RuntimeError("pretrain not specified for lang %s package %s" % (lang, package))
 
 def get_charlm_package(lang, package, model_charlms, default_charlms, default_use_charlm=True):
-    package, _, uses_charlm = split_package(package, default_use_charlm)
+    package, _, uses_charlm = _split_package_cached(package, default_use_charlm)
 
     if not uses_charlm:
         return None
 
-    if model_charlms is not None and lang in model_charlms and package in model_charlms[lang]:
-        return model_charlms[lang][package]
-    else:
-        return default_charlms.get(lang, None)
+    # Exploit the dict.get to avoid a second key search
+    if model_charlms is not None:
+        lang_model_charlms = model_charlms.get(lang)
+        if lang_model_charlms is not None:
+            result = lang_model_charlms.get(package)
+            if result is not None:
+                return result
+
+    return default_charlms.get(lang, None)
 
 def get_con_dependencies(lang, package):
     # so far, this invariant is true:
@@ -720,6 +726,14 @@ def main():
         process_default_zips(args)
         process_lcode(args)
         process_misc(args)
+
+# Cache the known package splits to avoid repeated calls to split_package for the same input.
+# This is safe because split_package is deterministic for the same input values.
+
+
+@lru_cache(maxsize=256)
+def _split_package_cached(package, default_use_charlm):
+    return split_package(package, default_use_charlm)
 
 
 if __name__ == '__main__':
