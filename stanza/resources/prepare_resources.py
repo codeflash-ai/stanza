@@ -246,14 +246,17 @@ def get_ner_pretrain_package(lang, package):
 def get_ner_dependencies(lang, package):
     dependencies = []
 
-    pretrain_package = get_ner_pretrain_package(lang, package)
+    pretrain_package = get_pretrain_package(lang, package, ner_pretrains, default_pretrains)
+    charlm_package = get_charlm_package(lang, package, ner_charlms, default_charlms)
+
     if pretrain_package is not None:
         dependencies.append({'model': 'pretrain', 'package': pretrain_package})
 
-    charlm_package = get_ner_charlm_package(lang, package)
     if charlm_package is not None:
-        dependencies.append({'model': 'forward_charlm', 'package': charlm_package})
-        dependencies.append({'model': 'backward_charlm', 'package': charlm_package})
+        dependencies.extend([
+            {'model': 'forward_charlm', 'package': charlm_package},
+            {'model': 'backward_charlm', 'package': charlm_package}
+        ])
 
     return dependencies
 
