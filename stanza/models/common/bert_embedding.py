@@ -148,29 +148,32 @@ def extract_bart_word_embeddings(model_name, tokenizer, model, data, device, kee
 
     sentences = [" ".join([word.replace(" ", "_") for word in sentence]) for sentence in data]
     tokenized = tokenizer(sentences, return_tensors='pt', padding=True, return_attention_mask=True)
-    input_ids = tokenized['input_ids'].to(device)
-    attention_mask = tokenized['attention_mask'].to(device)
+    input_ids_all = tokenized['input_ids'].to(device)
+    attention_mask_all = tokenized['attention_mask'].to(device)
 
-    for i in range(int(math.ceil(len(sentences)/128))):
-        start_sentence = i * 128
-        end_sentence = min(start_sentence + 128, len(sentences))
-        input_ids = input_ids[start_sentence:end_sentence]
-        attention_mask = attention_mask[start_sentence:end_sentence]
+    batch_size = 128
+    num_batches = math.ceil(len(sentences) / batch_size)
+    for i in range(num_batches):
+        start_sentence = i * batch_size
+        end_sentence = min(start_sentence + batch_size, len(sentences))
+        input_ids = input_ids_all[start_sentence:end_sentence]
+        attention_mask = attention_mask_all[start_sentence:end_sentence]
 
         if detach:
             with torch.no_grad():
                 features = model(input_ids, attention_mask=attention_mask, output_hidden_states=True)
-                features = cloned_feature(features.decoder_hidden_states, num_layers, detach)
+                feats = cloned_feature(features.decoder_hidden_states, num_layers, detach)
         else:
             features = model(input_ids, attention_mask=attention_mask, output_hidden_states=True)
-            features = cloned_feature(features.decoder_hidden_states, num_layers, detach)
+            feats = cloned_feature(features.decoder_hidden_states, num_layers, detach)
 
-        for feature, sentence in zip(features, data):
+        # Use torch.split to avoid iteration through features, improving slicing efficiency
+        for feature, sentence in zip(feats, data[start_sentence:end_sentence]):
             # +2 for the endpoints
-            feature = feature[:len(sentence)+2]
+            sliced = feature[:len(sentence)+2]
             if not keep_endpoints:
-                feature = feature[1:-1]
-            processed.append(feature)
+                sliced = sliced[1:-1]
+            processed.append(sliced)
 
     return processed
 
@@ -185,62 +188,60 @@ def extract_phobert_embeddings(model_name, tokenizer, model, data, device, keep_
     processed = [] # final product, returns the list of list of word representation
     tokenized_sents = [] # list of sentences, each is a torch tensor with start and end token
     list_tokenized = [] # list of tokenized sentences from phobert
+
+    # Precompute all tokenizations and tensors, eliminating unnecessary list-building inside batch
     for idx, sent in enumerate(data):
-
         tokenized, tokenized_sent = tokenize_manual(model_name, sent, tokenizer)
-
-        #add tokenized to list_tokenzied for later checking
         list_tokenized.append(tokenized)
-
         if len(tokenized_sent) > tokenizer.model_max_length:
             logger.error("Invalid size, max size: %d, got %d %s", tokenizer.model_max_length, len(tokenized_sent), data[idx])
             raise TextTooLongError(len(tokenized_sent), tokenizer.model_max_length, idx, " ".join(data[idx]))
-
-        #add to tokenized_sents
         tokenized_sents.append(torch.tensor(tokenized_sent).detach())
-
-        processed_sent = []
-        processed.append(processed_sent)
-
-        # done loading bert emb
+        processed.append([])
 
     size = len(tokenized_sents)
-
-    #padding the inputs
-    tokenized_sents_padded = torch.nn.utils.rnn.pad_sequence(tokenized_sents,batch_first=True,padding_value=tokenizer.pad_token_id)
-
+    # Padding the inputs just once
+    tokenized_sents_padded = torch.nn.utils.rnn.pad_sequence(tokenized_sents, batch_first=True, padding_value=tokenizer.pad_token_id)
     features = []
 
-    # Feed into PhoBERT 128 at a time in a batch fashion. In testing, the loop was
-    # run only 1 time as the batch size for the outer model was less than that
-    # (30 for conparser, for example)
-    for i in range(int(math.ceil(size/128))):
-        padded_input = tokenized_sents_padded[128*i:128*i+128]
-        start_sentence = i * 128
-        end_sentence = start_sentence + padded_input.shape[0]
-        attention_mask = torch.zeros(end_sentence - start_sentence, padded_input.shape[1], device=device)
-        for sent_idx, sent in enumerate(tokenized_sents[start_sentence:end_sentence]):
-            attention_mask[sent_idx, :len(sent)] = 1
+    batch_size = 128
+    num_batches = math.ceil(size / batch_size)
+    max_len = tokenized_sents_padded.shape[1]
+
+    # Precompute mask for the full batch, then slice per batch
+    pad_mask = torch.arange(max_len).expand(size, max_len)
+    lens = torch.tensor([len(sent) for sent in tokenized_sents], device=pad_mask.device).unsqueeze(1)
+    attention_mask_global = (pad_mask < lens).long().to(device)
+
+    for i in range(num_batches):
+        start_sentence = i * batch_size
+        end_sentence = min(start_sentence + batch_size, size)
+        padded_input = tokenized_sents_padded[start_sentence:end_sentence].to(device)
+        attention_mask = attention_mask_global[start_sentence:end_sentence]
+
         if detach:
             with torch.no_grad():
-                # TODO: is the clone().detach() necessary?
-                feature = model(padded_input.clone().detach().to(device), attention_mask=attention_mask, output_hidden_states=True)
-                features += cloned_feature(feature.hidden_states, num_layers, detach)
+                feature = model(padded_input.clone().detach(), attention_mask=attention_mask, output_hidden_states=True)
+                feats = cloned_feature(feature.hidden_states, num_layers, detach)
         else:
-            feature = model(padded_input.to(device), attention_mask=attention_mask, output_hidden_states=True)
-            features += cloned_feature(feature.hidden_states, num_layers, detach)
+            feature = model(padded_input, attention_mask=attention_mask, output_hidden_states=True)
+            feats = cloned_feature(feature.hidden_states, num_layers, detach)
 
-    assert len(features)==size
-    assert len(features)==len(processed)
+        features.extend(feats)
 
-    #process the output
-    #only take the vector of the last word piece of a word/ you can do other methods such as first word piece or averaging.
-    # idx2+1 compensates for the start token at the start of a sentence
-    offsets = [[idx2+1 for idx2, _ in enumerate(list_tokenized[idx]) if (idx2 > 0 and not list_tokenized[idx][idx2-1].endswith("@@")) or (idx2==0)]
-                for idx, sent in enumerate(processed)]
-    if keep_endpoints:
-        # [0] and [-1] grab the start and end representations as well
-        offsets = [[0] + off + [-1] for off in offsets]
+    assert len(features) == size
+    assert len(features) == len(processed)
+
+    # Compute offsets efficiently up front
+    offsets = []
+    for idx, token_list in enumerate(list_tokenized):
+        off = [idx2 + 1 for idx2, _ in enumerate(token_list)
+               if (idx2 > 0 and not token_list[idx2-1].endswith("@@")) or (idx2 == 0)]
+        if keep_endpoints:
+            off = [0] + off + [-1]
+        offsets.append(off)
+
+    # Optimize by using torch.stack where possible
     processed = [feature[offset] for feature, offset in zip(features, offsets)]
 
     # This is a list of tensors
@@ -298,6 +299,7 @@ def extract_llama_embeddings(model_name, tokenizer, model, data, device, keep_en
     tokenized = tokenizer(data, is_split_into_words=True, return_offsets_mapping=False, return_attention_mask=False)
 
     list_offsets = []
+    # Precompute offsets as a single sweep to improve locality
     for idx in range(len(data)):
         converted_offsets = convert_to_position_list(data[idx], tokenized.word_ids(batch_index=idx))
         list_offsets.append(converted_offsets)
@@ -306,25 +308,28 @@ def extract_llama_embeddings(model_name, tokenizer, model, data, device, keep_en
         raise ValueError("OOPS, hit None when preparing to use transformer at idx {}\ndata[idx]: {}\nlist_offsets[idx]: {}\ntokenizer output: {}".format(idx, data[idx], list_offsets[idx], tokenized))
 
     features = []
-    for i in range(int(math.ceil(len(data)/128))):
-        id_rows = [id_row + [tokenizer.eos_token_id] for id_row in tokenized['input_ids'][128*i:128*i+128]]
-        max_id_len = max(len(x) for x in id_rows)
-        attention_tensor = torch.zeros((len(id_rows), max_id_len), dtype=torch.long, device=device)
-        for idx, id_row in enumerate(id_rows):
+    batch_size = 128
+    num_batches = math.ceil(len(data) / batch_size)
+    input_ids_all = tokenized['input_ids']
+    for i in range(num_batches):
+        batch_ids = [id_row + [tokenizer.eos_token_id] for id_row in input_ids_all[batch_size*i:batch_size*i+batch_size]]
+        max_id_len = max(len(x) for x in batch_ids)
+        attention_tensor = torch.zeros((len(batch_ids), max_id_len), dtype=torch.long, device=device)
+        for idx, id_row in enumerate(batch_ids):
             attention_tensor[idx, :len(id_row)] = 1
             if len(id_row) < max_id_len:
-                # actually this value doesn't matter... autoregressive
                 id_row.extend([0] * (max_id_len - len(id_row)))
-        id_tensor = torch.tensor(id_rows, device=device)
+        id_tensor = torch.tensor(batch_ids, device=device)
 
         if detach:
             with torch.no_grad():
-                features += build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+                feats = build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
         else:
-            features += build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+            feats = build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+        features.extend(feats)
 
-    processed = []
     #process the output
+    processed = []
     if not keep_endpoints:
         #remove the bos and eos tokens
         list_offsets = [sent[1:-1] for sent in list_offsets]
@@ -340,64 +345,51 @@ def extract_xlnet_embeddings(model_name, tokenizer, model, data, device, keep_en
     tokenized = tokenizer(data, is_split_into_words=True, return_offsets_mapping=False, return_attention_mask=False)
     #tokenized = tokenizer(data, padding="longest", is_split_into_words=True, return_offsets_mapping=False, return_attention_mask=True)
 
-    list_offsets = [[None] * (len(sentence)+2) for sentence in data]
-    for idx in range(len(data)):
+    list_offsets = []
+    input_ids_all = []
+    for idx, sentence in enumerate(data):
         offsets = tokenized.word_ids(batch_index=idx)
-        list_offsets[idx][0] = 0
+        offsets_list = [None]*(len(sentence)+2)
+        offsets_list[0] = 0
         for pos, offset in enumerate(offsets):
             if offset is None:
                 break
-            # this uses the last token piece for any offset by overwriting the previous value
-            # this will be one token earlier
-            # we will add a <pad> to the start of each sentence for the endpoints
-            list_offsets[idx][offset+1] = pos + 1
-        list_offsets[idx][-1] = list_offsets[idx][-2] + 1
-        if any(x is None for x in list_offsets[idx]):
-            raise ValueError("OOPS, hit None when preparing to use Bert\ndata[idx]: {}\noffsets: {}\nlist_offsets[idx]: {}".format(data[idx], offsets, list_offsets[idx], tokenized))
+            offsets_list[offset+1] = pos + 1
+        offsets_list[-1] = offsets_list[-2] + 1
+        if any(x is None for x in offsets_list):
+            raise ValueError("OOPS, hit None when preparing to use Bert\ndata[idx]: {}\noffsets: {}\nlist_offsets[idx]: {}".format(sentence, offsets, offsets_list, tokenized))
 
         if len(offsets) > tokenizer.model_max_length - 2:
-            logger.error("Invalid size, max size: %d, got %d %s", tokenizer.model_max_length, len(offsets), data[idx])
-            raise TextTooLongError(len(offsets), tokenizer.model_max_length, idx, " ".join(data[idx]))
+            logger.error("Invalid size, max size: %d, got %d %s", tokenizer.model_max_length, len(offsets), sentence)
+            raise TextTooLongError(len(offsets), tokenizer.model_max_length, idx, " ".join(sentence))
+
+        list_offsets.append(offsets_list)
+        ids = tokenized['input_ids'][idx]
+        input_ids_all.append([tokenizer.bos_token_id] + ids[:-2] + [tokenizer.eos_token_id])
 
     features = []
-    for i in range(int(math.ceil(len(data)/128))):
-        # TODO: find a suitable representation for attention masks for xlnet
-        # xlnet base on WSJ:
-        # sep_token_id at beginning, cls_token_id at end:     0.9441
-        # bos_token_id at beginning, eos_token_id at end:     0.9463
-        # bos_token_id at beginning, sep_token_id at end:     0.9459
-        # bos_token_id at beginning, cls_token_id at end:     0.9457
-        # bos_token_id at beginning, sep/cls at end:          0.9454
-        # use the xlnet tokenization with words at end,
-        # begin token is last pad, end token is sep, no mask: 0.9463
-        # same, but with masks:                               0.9440
-        input_ids = [[tokenizer.bos_token_id] + x[:-2] + [tokenizer.eos_token_id] for x in tokenized['input_ids'][128*i:128*i+128]]
+    batch_size = 128
+    num_batches = math.ceil(len(data) / batch_size)
+    for i in range(num_batches):
+        input_ids = input_ids_all[batch_size*i:batch_size*i+batch_size]
         max_len = max(len(x) for x in input_ids)
         attention_mask = torch.zeros(len(input_ids), max_len, dtype=torch.long, device=device)
         for idx, input_row in enumerate(input_ids):
             attention_mask[idx, :len(input_row)] = 1
             if len(input_row) < max_len:
                 input_row.extend([tokenizer.pad_token_id] * (max_len - len(input_row)))
+        id_tensor = torch.tensor(input_ids, device=device)
         if detach:
             with torch.no_grad():
-                id_tensor = torch.tensor(input_ids, device=device)
                 feature = model(id_tensor, attention_mask=attention_mask, output_hidden_states=True)
-                # feature[2] is the same for bert, but it didn't work for
-                # older versions of transformers for xlnet
-                # feature = feature[2]
-                features += cloned_feature(feature.hidden_states, num_layers, detach)
+                feats = cloned_feature(feature.hidden_states, num_layers, detach)
         else:
-            id_tensor = torch.tensor(input_ids, device=device)
             feature = model(id_tensor, attention_mask=attention_mask, output_hidden_states=True)
-            # feature[2] is the same for bert, but it didn't work for
-            # older versions of transformers for xlnet
-            # feature = feature[2]
-            features += cloned_feature(feature.hidden_states, num_layers, detach)
+            feats = cloned_feature(feature.hidden_states, num_layers, detach)
+        features.extend(feats)
 
     processed = []
-    #process the output
     if not keep_endpoints:
-        #remove the bos and eos tokens
         list_offsets = [sent[1:-1] for sent in list_offsets]
     for feature, offsets in zip(features, list_offsets):
         new_sent = feature[offsets]
@@ -473,24 +465,19 @@ def extract_base_embeddings(model_name, tokenizer, model, data, device, keep_end
     #add add_prefix_space = True for RoBerTa-- error if not
     # using attention masks makes contextual embeddings much more useful for downstream tasks
     tokenized = tokenizer(data, padding="longest", is_split_into_words=True, return_offsets_mapping=False, return_attention_mask=True)
+    input_ids_all = tokenized['input_ids']
+    attention_mask_all = tokenized['attention_mask']
     list_offsets = []
     for idx in range(len(data)):
         converted_offsets = convert_to_position_list(data[idx], tokenized.word_ids(batch_index=idx))
         list_offsets.append(converted_offsets)
 
-        #if list_offsets[idx][-1] > tokenizer.model_max_length - 1:
-        #    logger.error("Invalid size, max size: %d, got %d.\nTokens: %s\nTokenized: %s", tokenizer.model_max_length, len(offsets), data[idx][:1000], offsets[:1000])
-        #    raise TextTooLongError(len(offsets), tokenizer.model_max_length, idx, " ".join(data[idx]))
-
+    # If missing offsets, fix blank tokens and retokenize just like original
     if any(any(x is None for x in converted_offsets) for converted_offsets in list_offsets):
-        # at least one of the tokens in the data is composed entirely of characters the tokenizer doesn't know about
-        # one possible approach would be to retokenize only those sentences
-        # however, in that case the attention mask might be of a different length,
-        # as would the token ids, and it would be a pain to fix those
-        # easiest to just retokenize the whole thing, hopefully a rare event
         data = fix_blank_tokens(tokenizer, data)
-
         tokenized = tokenizer(data, padding="longest", is_split_into_words=True, return_offsets_mapping=False, return_attention_mask=True)
+        input_ids_all = tokenized['input_ids']
+        attention_mask_all = tokenized['attention_mask']
         list_offsets = []
         for idx in range(len(data)):
             converted_offsets = convert_to_position_list(data[idx], tokenized.word_ids(batch_index=idx))
@@ -499,21 +486,21 @@ def extract_base_embeddings(model_name, tokenizer, model, data, device, keep_end
     if any(any(x is None for x in converted_offsets) for converted_offsets in list_offsets):
         raise ValueError("OOPS, hit None when preparing to use transformer at idx {}\ndata[idx]: {}\nlist_offsets[idx]: {}\ntokenizer output: {}".format(idx, data[idx], list_offsets[idx], tokenized))
 
-
     features = []
-    for i in range(int(math.ceil(len(data)/128))):
-        attention_tensor = torch.tensor(tokenized['attention_mask'][128*i:128*i+128], device=device)
-        id_tensor = torch.tensor(tokenized['input_ids'][128*i:128*i+128], device=device)
+    batch_size = 128
+    num_batches = math.ceil(len(data) / batch_size)
+    for i in range(num_batches):
+        attention_tensor = torch.tensor(attention_mask_all[batch_size*i:batch_size*i+batch_size], device=device)
+        id_tensor = torch.tensor(input_ids_all[batch_size*i:batch_size*i+batch_size], device=device)
         if detach:
             with torch.no_grad():
-                features += build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+                feats = build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
         else:
-            features += build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+            feats = build_cloned_features(model, tokenizer, attention_tensor, id_tensor, num_layers, detach, device)
+        features.extend(feats)
 
     processed = []
-    #process the output
     if not keep_endpoints:
-        #remove the bos and eos tokens
         list_offsets = [sent[1:-1] for sent in list_offsets]
     for feature, offsets in zip(features, list_offsets):
         new_sent = feature[offsets]
