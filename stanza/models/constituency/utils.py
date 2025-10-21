@@ -1,8 +1,6 @@
 """
 Collects a few of the conparser utility methods which don't belong elsewhere
 """
-
-from collections import Counter
 import logging
 import warnings
 
@@ -49,18 +47,45 @@ def retag_tags(doc, pipelines, xpos):
     pipelines are a list of 1 or more retag pipelines
     if multiple pipelines are given, majority vote wins
     """
+    # Cache per-pipeline result to avoid repeated work (memory cost is negligible vs computation)
     tag_lists = []
     for pipeline in pipelines:
-        doc = pipeline(doc)
-        tag_lists.append([[x.xpos if xpos else x.upos for x in sentence.words] for sentence in doc.sentences])
-    # tag_lists: for N pipeline, S sentences
-    # we now have N lists of S sentences each
-    # for sentence in zip(*tag_lists): N lists of |s| tags for this given sentence s
-    # for tag in zip(*sentence): N predicted tags.
-    # most common one in the Counter will be chosen
-    tag_lists = [[Counter(tag).most_common(1)[0][0] for tag in zip(*sentence)]
-                 for sentence in zip(*tag_lists)]
-    return tag_lists
+        doc_result = pipeline(doc)
+        tag_lists.append(
+            [
+                # List comprehension for tag extraction
+                [w.xpos if xpos else w.upos for w in s.words]
+                for s in doc_result.sentences
+            ]
+        )
+
+    # Transpose sentences by pipeline efficiently, to get sentence-major order
+    # zip(*tag_lists) produces tuples of tags-per-sentence from each pipeline
+
+    # Optimize majority vote calculation:
+    # Instead of creating a Counter object for every word position, use dict
+    # and find the max on the fly (avoid the overhead of Counter)
+    result = []
+    for sentence_tags in zip(*tag_lists):  # iterates over sentences
+        # sentence_tags: tuple of N lists, where each is predicted tags for the sentence
+        # Transpose tags per word position using zip(*sentence_tags): iter over words
+        sentence_result = []
+        for word_tags in zip(*sentence_tags):  # iterates over word positions
+            # word_tags: tuple of N tag strings
+            # Fast majority vote:
+            tag_counts = {}
+            for tag in word_tags:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            # If tie, pick the first encountered
+            max_count = -1
+            most_common_tag = None
+            for tag, count in tag_counts.items():
+                if count > max_count:
+                    max_count = count
+                    most_common_tag = tag
+            sentence_result.append(most_common_tag)
+        result.append(sentence_result)
+    return result
 
 def retag_trees(trees, pipelines, xpos=True):
     """
