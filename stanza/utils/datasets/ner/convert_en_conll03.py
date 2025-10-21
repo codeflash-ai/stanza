@@ -15,9 +15,10 @@ ID_TO_TAG = {y: x for x, y in TAG_TO_ID.items()}
 
 def convert_dataset_section(section):
     sentences = []
+    id_to_tag = ID_TO_TAG
     for item in section:
         words = item['tokens']
-        tags = [ID_TO_TAG[x] for x in item['ner_tags']]
+        tags = map(id_to_tag.__getitem__, item['ner_tags'])
         sentences.append(list(zip(words, tags)))
     return sentences
 
