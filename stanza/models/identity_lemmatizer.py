@@ -18,19 +18,22 @@ logger = logging.getLogger('stanza')
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='data/lemma', help='Directory for all lemma data.')
-    parser.add_argument('--train_file', type=str, default=None, help='Input file for data loader.')
-    parser.add_argument('--eval_file', type=str, default=None, help='Input file for data loader.')
-    parser.add_argument('--output_file', type=str, default=None, help='Output CoNLL-U file.')
-    parser.add_argument('--gold_file', type=str, default=None, help='Output CoNLL-U file.')
+    group = parser.add_argument_group('main')
+    add = group.add_argument
 
-    parser.add_argument('--mode', default='train', choices=['train', 'predict'])
-    parser.add_argument('--shorthand', type=str, help='Shorthand')
+    add('--data_dir', type=str, default='data/lemma', help='Directory for all lemma data.')
+    add('--train_file', type=str, default=None, help='Input file for data loader.')
+    add('--eval_file', type=str, default=None, help='Input file for data loader.')
+    add('--output_file', type=str, default=None, help='Output CoNLL-U file.')
+    add('--gold_file', type=str, default=None, help='Output CoNLL-U file.')
 
-    parser.add_argument('--batch_size', type=int, default=50)
-    parser.add_argument('--seed', type=int, default=1234)
+    add('--mode', default='train', choices=['train', 'predict'])
+    add('--shorthand', type=str, help='Shorthand')
 
-    args = parser.parse_args(args=args)
+    add('--batch_size', type=int, default=50)
+    add('--seed', type=int, default=1234)
+
+    args = parser.parse_args(args)
     return args
 
 def main(args=None):
