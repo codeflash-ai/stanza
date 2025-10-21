@@ -1,4 +1,3 @@
-
 import argparse
 import re
 
@@ -23,13 +22,12 @@ def print_new_paragraph_if_needed(fout, start, newdoc, newpar, output_buffer):
 
 def print_lines_from_buffer(fout, output_buffer, max_len):
     while len(output_buffer) >= max_len:
-        split_idx = None
-        for idx in range(len(output_buffer)):
-            if idx > max_len and split_idx is not None:
-                break
-            if output_buffer[idx].isspace():
-                split_idx = idx
-        if split_idx is not None:
+        # Find the furthest whitespace at or before max_len
+        # Avoid repeated scanning--search only where needed
+        split_idx = output_buffer[:max_len+1].rfind(' ')
+        if split_idx == -1:
+            split_idx = output_buffer[:max_len+1].rfind('\t')
+        if split_idx != -1:
             fout.write(output_buffer[:split_idx])
             fout.write("\n")
             output_buffer = output_buffer[split_idx+1:]
