@@ -26,13 +26,13 @@ def score_by_entity(pred_tag_sequences, gold_tag_sequences, verbose=True, ignore
         "Number of predicted tag sequences does not match gold sequences."
     
     def decode_all(tag_sequences):
-        # decode from all sequences, each sequence with a unique id
-        ents = []
+        ent_by_type = defaultdict(set)
         for sent_id, tags in enumerate(tag_sequences):
             for ent in decode_from_bioes(tags):
-                ent['sent_id'] = sent_id
-                ents += [ent]
-        return ents
+                ent_type = ent['type']
+                if ent_type not in ignore_tag_set:
+                    ent_by_type[ent_type].add((sent_id, ent['start'], ent['end']))
+        return ent_by_type
 
     ignore_tag_set = set()
     if ignore_tags:
@@ -41,31 +41,30 @@ def score_by_entity(pred_tag_sequences, gold_tag_sequences, verbose=True, ignore
         else:
             ignore_tag_set.update(ignore_tags)
 
-    gold_ents = decode_all(gold_tag_sequences)
-    gold_ents = [x for x in gold_ents if x['type'] not in ignore_tag_set]
+    gold_by_type = decode_all(gold_tag_sequences)
+    pred_by_type = decode_all(pred_tag_sequences)
 
-    pred_ents = decode_all(pred_tag_sequences)
-    pred_ents = [x for x in pred_ents if x['type'] not in ignore_tag_set]
+    all_types = set(gold_by_type.keys()) | set(pred_by_type.keys())
 
-    # scoring
     true_positive_by_type = Counter()
     false_positive_by_type = Counter()
     false_negative_by_type = Counter()
     guessed_by_type = Counter()
-    gold_by_type = Counter()
+    gold_by_type_count = Counter()
 
-    for p in pred_ents:
-        guessed_by_type[p['type']] += 1
-        if p in gold_ents:
-            true_positive_by_type[p['type']] += 1
-        else:
-            false_positive_by_type[p['type']] += 1
-    for g in gold_ents:
-        gold_by_type[g['type']] += 1
-        if g not in pred_ents:
-            false_negative_by_type[g['type']] += 1
+    for ent_type in all_types:
+        gold_set = gold_by_type.get(ent_type, set())
+        pred_set = pred_by_type.get(ent_type, set())
+        tp = len(gold_set & pred_set)
+        fp = len(pred_set - gold_set)
+        fn = len(gold_set - pred_set)
+        true_positive_by_type[ent_type] = tp
+        false_positive_by_type[ent_type] = fp
+        false_negative_by_type[ent_type] = fn
+        guessed_by_type[ent_type] = len(pred_set)
+        gold_by_type_count[ent_type] = len(gold_set)
 
-    entities = sorted(set(list(true_positive_by_type.keys()) + list(false_positive_by_type.keys()) + list(false_negative_by_type.keys())))
+    entities = sorted(all_types)
     entity_f1 = {}
     for entity in entities:
         entity_f1[entity] = 2 * true_positive_by_type[entity] / (2 * true_positive_by_type[entity] + false_positive_by_type[entity] + false_negative_by_type[entity])
@@ -74,8 +73,8 @@ def score_by_entity(pred_tag_sequences, gold_tag_sequences, verbose=True, ignore
     if sum(guessed_by_type.values()) > 0:
         prec_micro = sum(true_positive_by_type.values()) * 1.0 / sum(guessed_by_type.values())
     rec_micro = 0.0
-    if sum(gold_by_type.values()) > 0:
-        rec_micro = sum(true_positive_by_type.values()) * 1.0 / sum(gold_by_type.values())
+    if sum(gold_by_type_count.values()) > 0:
+        rec_micro = sum(true_positive_by_type.values()) * 1.0 / sum(gold_by_type_count.values())
     f_micro = 0.0
     if prec_micro + rec_micro > 0:
         f_micro = 2.0 * prec_micro * rec_micro / (prec_micro + rec_micro)
