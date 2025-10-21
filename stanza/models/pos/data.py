@@ -33,14 +33,20 @@ class Dataset:
         else:
             self.vocab = vocab
 
-        self.has_upos = not all(x is None or x == '_' for x in doc.get(UPOS, as_sentences=False))
-        self.has_xpos = not all(x is None or x == '_' for x in doc.get(XPOS, as_sentences=False))
-        self.has_feats = not all(x is None or x == '_' for x in doc.get(FEATS, as_sentences=False))
+        # Minimize number of .get() calls, only once per relevant field
+        upos_col = doc.get(UPOS, as_sentences=False)
+        xpos_col = doc.get(XPOS, as_sentences=False)
+        feats_col = doc.get(FEATS, as_sentences=False)
+        # Use any() instead of all() for increased efficiency due to short-circuiting
+        self.has_upos = any(x is not None and x != '_' for x in upos_col)
+        self.has_xpos = any(x is not None and x != '_' for x in xpos_col)
+        self.has_feats = any(x is not None and x != '_' for x in feats_col)
 
         data = self.load_doc(self.doc)
         # filter out the long sentences if bert is used
-        if self.args.get('bert_model', None) and needs_length_filter(self.args['bert_model']):
-            data = filter_data(self.args['bert_model'], data, bert_tokenizer)
+        bert_model = self.args.get('bert_model', None)
+        if bert_model and needs_length_filter(bert_model):
+            data = filter_data(bert_model, data, bert_tokenizer)
 
         # handle pretrain; pretrain vocab is used when args['pretrain'] == True and pretrain is not None
         self.pretrain_vocab = None
@@ -48,10 +54,13 @@ class Dataset:
             self.pretrain_vocab = pretrain.vocab
 
         # filter and sample data
-        if args.get('sample_train', 1.0) < 1.0 and not self.eval:
-            keep = int(args['sample_train'] * len(data))
-            data = random.sample(data, keep)
-            logger.debug("Subsample training set with rate {:g}".format(args['sample_train']))
+        sample_train = args.get('sample_train', 1.0)
+        if sample_train < 1.0 and not self.eval:
+            keep = int(sample_train * len(data))
+            if keep < len(data):
+                # random.sample is O(k) time and space
+                data = random.sample(data, keep)
+                logger.debug("Subsample training set with rate {:g}".format(sample_train))
 
         data = self.preprocess(data, self.vocab, self.pretrain_vocab, args)
 
@@ -283,11 +292,12 @@ class Dataset:
     @staticmethod
     def resolve_none(data):
         # replace None to '_'
-        for sent_idx in range(len(data)):
-            for tok_idx in range(len(data[sent_idx])):
-                for feat_idx in range(len(data[sent_idx][tok_idx])):
-                    if data[sent_idx][tok_idx][feat_idx] is None:
-                        data[sent_idx][tok_idx][feat_idx] = '_'
+        for sent in data:
+            for token in sent:
+                # Use enumerate & range is not necessary: direct loop is faster
+                for i, feat in enumerate(token):
+                    if feat is None:
+                        token[i] = '_'
         return data
 
 class LengthLimitedBatchSampler(Sampler):
