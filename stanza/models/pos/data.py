@@ -1,6 +1,5 @@
 import random
 import logging
-import copy
 import torch
 from collections import namedtuple
 
@@ -9,9 +8,9 @@ from torch.utils.data.sampler import Sampler
 from torch.nn.utils.rnn import pad_sequence
 
 from stanza.models.common.bert_embedding import filter_data, needs_length_filter
-from stanza.models.common.data import map_to_ids, get_long_tensor, get_float_tensor, sort_all
-from stanza.models.common.vocab import PAD_ID, VOCAB_PREFIX, CharVocab
-from stanza.models.pos.vocab import WordVocab, XPOSVocab, FeatureVocab, MultiVocab
+from stanza.models.common.data import get_long_tensor, sort_all
+from stanza.models.common.vocab import PAD_ID, CharVocab
+from stanza.models.pos.vocab import WordVocab, FeatureVocab, MultiVocab
 from stanza.models.pos.xpos_vocab_factory import xpos_vocab_factory
 from stanza.models.common.doc import *
 
@@ -276,8 +275,16 @@ class Dataset:
 
     @staticmethod
     def load_doc(doc):
+        # Inline optimized resolve_none implementation for speed
         data = doc.get([TEXT, UPOS, XPOS, FEATS], as_sentences=True)
-        data = Dataset.resolve_none(data)
+        # Avoid repeated lookups and method calls with local vars
+        # Use local variables for attribute access and method calling
+        for sentence in data:
+            for token in sentence:
+                # Use enumerate so the assignment goes through the original list reference
+                for idx, feat in enumerate(token):
+                    if feat is None:
+                        token[idx] = '_'
         return data
 
     @staticmethod
