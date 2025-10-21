@@ -81,14 +81,17 @@ def basic_to_bio(tags):
     Returns:
         new_tags: a list of tags in BIO format
     """
-    new_tags = []
+    new_tags = [None] * len(tags)
+    prev_tag = None
     for i, tag in enumerate(tags):
         if tag in EMPTY_OR_O_TAG:
-            new_tags.append(tag)
-        elif i == 0 or tags[i-1] == 'O' or tags[i-1] != tag:
-            new_tags.append('B-' + tag)
+            new_tags[i] = tag
+            prev_tag = tag
+        elif prev_tag == 'O' or prev_tag != tag or prev_tag is None:
+            new_tags[i] = 'B-' + tag
+            prev_tag = tag
         else:
-            new_tags.append('I-' + tag)
+            new_tags[i] = 'I-' + tag
     return new_tags
 
 
