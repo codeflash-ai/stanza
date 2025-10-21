@@ -269,12 +269,7 @@ class DataLoader(TokenizationDataset):
 
         self.vocab = vocab if vocab is not None else self.init_vocab()
 
-        # data comes in a list of paragraphs, where each paragraph is a list of units with unit-level labels.
-        # At evaluation time, each paragraph is treated as single "sentence" as we don't know a priori where
-        # sentence breaks occur. We make prediction from left to right for each paragraph and move forward to
-        # the last predicted sentence break to start afresh.
         self.sentences = [self.para_to_sentences(para) for para in self.data]
-
         self.init_sent_ids()
         logger.debug(f"{len(self.sentence_ids)} sentences loaded.")
 
@@ -401,15 +396,12 @@ class DataLoader(TokenizationDataset):
 
 
     def next(self, eval_offsets=None, unit_dropout=0.0, feat_unit_dropout=0.0):
-        ''' Get a batch of converted and padded PyTorch data from preprocessed raw text for training/prediction. '''
+        """ Get a batch of converted and padded PyTorch data from preprocessed raw text for training/prediction. """
         feat_size = len(self.sentences[0][0][2][0])
         unkid = self.vocab.unit2id('<UNK>')
         padid = self.vocab.unit2id('<PAD>')
 
         def strings_starting(id_pair, offset=0, pad_len=self.args['max_seqlen']):
-            # At eval time, this combines sentences in paragraph (indexed by id_pair[0]) starting sentence (indexed 
-            # by id_pair[1]) into a long string for evaluation. At training time, we just select random sentences
-            # from the entire dataset until we reach max_seqlen.
             drop_sents = False if self.eval or (self.args.get('sent_drop_prob', 0) == 0) else (random.random() < self.args.get('sent_drop_prob', 0))
             drop_last_char = False if self.eval or (self.args.get('last_char_drop_prob', 0) == 0) else (random.random() < self.args.get('last_char_drop_prob', 0))
             move_last_char_prob = 0.0 if self.eval else self.args.get('last_char_move_prob', 0.0)
@@ -417,15 +409,14 @@ class DataLoader(TokenizationDataset):
             split_mwt_prob = 0.0 if self.eval else self.args.get('split_mwt_prob', 0.0)
 
             pid, sid = id_pair if self.eval else random.choice(self.sentence_ids)
-            sentences = [copy([x[offset:] for x in self.sentences[pid][sid]])]
+            sentences = [[x[offset:] for x in self.sentences[pid][sid]]]
             total_len = len(sentences[0][0])
 
             assert self.eval or total_len <= self.args['max_seqlen'], 'The maximum sequence length {} is less than that of the longest sentence length ({}) in the data, consider increasing it! {}'.format(self.args['max_seqlen'], total_len, ' '.join(["{}/{}".format(*x) for x in zip(self.sentences[pid][sid])]))
             if self.eval:
-                for sid1 in range(sid+1, len(self.sentences[pid])):
+                for sid1 in range(sid + 1, len(self.sentences[pid])):
                     total_len += len(self.sentences[pid][sid1][0])
                     sentences.append(self.sentences[pid][sid1])
-
                     if total_len >= self.args['max_seqlen']:
                         break
             else:
@@ -433,122 +424,112 @@ class DataLoader(TokenizationDataset):
                     pid1, sid1 = random.choice(self.sentence_ids)
                     total_len += len(self.sentences[pid1][sid1][0])
                     sentences.append(self.sentences[pid1][sid1])
-
                     if total_len >= self.args['max_seqlen']:
                         break
 
             if move_last_char_prob > 0.0:
-                for sentence_idx, sentence in enumerate(sentences):
+                for i, sentence in enumerate(sentences):
                     if random.random() < move_last_char_prob:
-                        # the sentence might not be eligible, such as
-                        # already having a space or not having a sentence final punct,
-                        # so we need to do a two step checking process here
                         new_sentence = self.move_last_char(sentence)
                         if new_sentence is not None:
-                            sentences[sentence_idx] = new_sentence[0]
+                            sentences[i] = new_sentence[0]
                             total_len += 1
 
             if move_punct_back_prob > 0.0:
-                for sentence_idx, sentence in enumerate(sentences):
+                for i, sentence in enumerate(sentences):
                     if random.random() < move_punct_back_prob:
-                        # the sentence might not be eligible, such as
-                        # not having a space separated punct,
-                        # so we need to do a two step checking process here
                         new_sentence = self.move_punct_back(sentence)
                         if new_sentence is not None:
-                            total_len = total_len + len(new_sentence[0][3]) - len(sentences[sentence_idx][3])
-                            sentences[sentence_idx] = new_sentence[0]
+                            total_len = total_len + len(new_sentence[0][3]) - len(sentences[i][3])
+                            sentences[i] = new_sentence[0]
 
             if split_mwt_prob > 0.0:
-                for sentence_idx, sentence in enumerate(sentences):
+                for i, sentence in enumerate(sentences):
                     if random.random() < split_mwt_prob:
                         new_sentence = self.split_mwt(sentence)
                         if new_sentence is not None:
-                            total_len = total_len + len(new_sentence[0][3]) - len(sentences[sentence_idx][3])
-                            sentences[sentence_idx] = new_sentence[0]
+                            total_len = total_len + len(new_sentence[0][3]) - len(sentences[i][3])
+                            sentences[i] = new_sentence[0]
 
             if drop_sents and len(sentences) > 1:
                 if total_len > self.args['max_seqlen']:
                     sentences = sentences[:-1]
                 if len(sentences) > 1:
-                    p = [.5 ** i for i in range(1, len(sentences) + 1)] # drop a large number of sentences with smaller probability
+                    p = [.5 ** i for i in range(1, len(sentences) + 1)]
                     cutoff = random.choices(list(range(len(sentences))), weights=list(reversed(p)))[0]
-                    sentences = sentences[:cutoff+1]
+                    sentences = sentences[:cutoff + 1]
 
             units = np.concatenate([s[0] for s in sentences])
             labels = np.concatenate([s[1] for s in sentences])
             feats = np.concatenate([s[2] for s in sentences])
-            raw_units = [x for s in sentences for x in s[3]]
+            raw_units = []
+            for s in sentences:
+                raw_units.extend(s[3])
 
             if not self.eval:
                 cutoff = self.args['max_seqlen']
                 units, labels, feats, raw_units = units[:cutoff], labels[:cutoff], feats[:cutoff], raw_units[:cutoff]
 
-            if drop_last_char:  # can only happen in non-eval mode
+            if drop_last_char:
                 if len(labels) > 1 and labels[-1] == 2 and labels[-2] in (1, 3):
-                    # training text ended with a sentence end position
-                    # and that word was a single character
-                    # and the previous character ended the word
                     units, labels, feats, raw_units = units[:-1], labels[:-1], feats[:-1], raw_units[:-1]
-                    # word end -> sentence end, mwt end -> sentence mwt end
                     labels[-1] = labels[-1] + 1
 
             return units, labels, feats, raw_units
 
         if eval_offsets is not None:
-            # find max padding length
             pad_len = 0
+            id_pairs = []
+            offsets = []
             for eval_offset in eval_offsets:
                 if eval_offset < self.cumlen[-1]:
                     pair_id = bisect_right(self.cumlen, eval_offset) - 1
+                    id_pairs.append(pair_id)
                     pair = self.sentence_ids[pair_id]
-                    pad_len = max(pad_len, len(strings_starting(pair, offset=eval_offset-self.cumlen[pair_id])[0]))
+                    pad_len = max(pad_len, len(strings_starting(pair, offset=eval_offset - self.cumlen[pair_id])[0]))
+                    offsets.append(eval_offset - self.cumlen[pair_id])
 
             pad_len += 1
-            id_pairs = [bisect_right(self.cumlen, eval_offset) - 1 for eval_offset in eval_offsets]
             pairs = [self.sentence_ids[pair_id] for pair_id in id_pairs]
-            offsets = [eval_offset - self.cumlen[pair_id] for eval_offset, pair_id in zip(eval_offsets, id_pairs)]
-
             offsets_pairs = list(zip(offsets, pairs))
         else:
             id_pairs = random.sample(self.sentence_ids, min(len(self.sentence_ids), self.args['batch_size']))
             offsets_pairs = [(0, x) for x in id_pairs]
             pad_len = self.args['max_seqlen']
 
-        # put everything into padded and nicely shaped NumPy arrays and eventually convert to PyTorch tensors
-        units = np.full((len(id_pairs), pad_len), padid, dtype=np.int64)
-        labels = np.full((len(id_pairs), pad_len), -1, dtype=np.int64)
-        features = np.zeros((len(id_pairs), pad_len, feat_size), dtype=np.float32)
+        batch_size = len(offsets_pairs)
+        units = np.full((batch_size, pad_len), padid, dtype=np.int64)
+        labels = np.full((batch_size, pad_len), -1, dtype=np.int64)
+        features = np.zeros((batch_size, pad_len, feat_size), dtype=np.float32)
         raw_units = []
+
         for i, (offset, pair) in enumerate(offsets_pairs):
             u_, l_, f_, r_ = strings_starting(pair, offset=offset, pad_len=pad_len)
-            units[i, :len(u_)] = u_
-            labels[i, :len(l_)] = l_
+            len_u = len(u_)
+            units[i, :len_u] = u_
+            labels[i, :len_u] = l_
             features[i, :len(f_), :] = f_
             raw_units.append(r_ + ['<PAD>'] * (pad_len - len(r_)))
 
         if unit_dropout > 0 and not self.eval:
-            # dropout characters/units at training time and replace them with UNKs
             mask = np.random.random_sample(units.shape) < unit_dropout
             mask[units == padid] = 0
-            units[mask] = unkid
-            for i in range(len(raw_units)):
-                for j in range(len(raw_units[i])):
+            # Find indices where to set UNK tokens
+            unk_idx = np.where(mask)
+            units[unk_idx] = unkid
+            for i in range(batch_size):
+                for j in range(pad_len):
                     if mask[i, j]:
                         raw_units[i][j] = '<UNK>'
 
-        # dropout unit feature vector in addition to only torch.dropout in the model.
-        # experiments showed that only torch.dropout hurts the model
-        # we believe it is because the dict feature vector is mostly scarse so it makes
-        # more sense to drop out the whole vector instead of only single element.
         if self.args['use_dictionary'] and feat_unit_dropout > 0 and not self.eval:
             mask_feat = np.random.random_sample(units.shape) < feat_unit_dropout
             mask_feat[units == padid] = 0
-            for i in range(len(raw_units)):
-                for j in range(len(raw_units[i])):
-                    if mask_feat[i,j]:
-                        features[i,j,:] = 0
-                        
+            for i in range(batch_size):
+                for j in range(pad_len):
+                    if mask_feat[i, j]:
+                        features[i, j, :] = 0
+
         units = torch.from_numpy(units)
         labels = torch.from_numpy(labels)
         features = torch.from_numpy(features)
