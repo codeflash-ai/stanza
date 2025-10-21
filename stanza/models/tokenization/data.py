@@ -77,7 +77,7 @@ class TokenizationDataset:
 
         Used at eval time to compare to the results, for example
         """
-        return [np.array(list(x[1] for x in sent)) for sent in self.data]
+        return [np.array([x[1] for x in sent], dtype=int) for sent in self.data]
 
     def extract_dict_feat(self, para, idx):
         """
