@@ -1,4 +1,3 @@
-
 import os
 
 punctuation_set = (',', '.', '!', '?', ')', ':', ';', '”', '…', '...')
@@ -9,22 +8,35 @@ def find_spaces(sentence):
     # of the next word.  Training should work this way, though
     odd_quotes = False
 
-    spaces = []
-    for word_idx, word in enumerate(sentence):
+    SENT_LEN = len(sentence)
+    PUNCTUATION = {',', '.', '!', '?', ')', ':', ';', '”', '…', '...', '/', '%'}
+    NO_SPACE_BEFORE = {'(', '“', '/'}
+    spaces = [True] * SENT_LEN  # Preallocate list for memory and speed efficiency
+
+    for word_idx in range(SENT_LEN):
+        word = sentence[word_idx]
         space = True
-        # Quote period at the end of a sentence needs to be attached
-        # to the rest of the text.  Some sentences have `"... text`
-        # in the middle, though, so look for that
-        if word_idx < len(sentence) - 2 and sentence[word_idx+1] == '"':
-            if sentence[word_idx+2] == '.':
-                space = False
-            elif word_idx == len(sentence) - 3 and sentence[word_idx+2] == '...':
-                space = False
-        if word_idx < len(sentence) - 1:
-            if sentence[word_idx+1] in (',', '.', '!', '?', ')', ':', ';', '”', '…', '...','/', '%'):
-                space = False
-        if word in ('(', '“', '/'):
+
+        # Merge checks for the next and next-next tokens into fewer if/elif branches for speed
+        # Use local variables to avoid attribute lookup in hot loop
+        word_idx_p1 = word_idx + 1
+        word_idx_p2 = word_idx + 2
+
+        # Quote period pattern
+        if word_idx_p1 < SENT_LEN and sentence[word_idx_p1] == '"':
+            if word_idx_p2 < SENT_LEN:
+                if sentence[word_idx_p2] == '.':
+                    space = False
+                elif word_idx == SENT_LEN - 3 and sentence[word_idx_p2] == '...':
+                    space = False
+
+        # Punctuation pattern
+        if word_idx_p1 < SENT_LEN and sentence[word_idx_p1] in PUNCTUATION:
             space = False
+
+        if word in NO_SPACE_BEFORE:
+            space = False
+
         if word == '"':
             if odd_quotes:
                 # already saw one quote.  put this one at the end of the PREVIOUS word
@@ -34,7 +46,8 @@ def find_spaces(sentence):
             else:
                 odd_quotes = True
                 space = False
-        spaces.append(space)
+        spaces[word_idx] = space
+
     return spaces
 
 def add_vlsp_args(parser):
