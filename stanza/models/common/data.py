@@ -97,10 +97,14 @@ def can_augment_nopunct_predicate(sentence):
     if last_word.get(UPOS, None) != 'PUNCT':
         return False
     # don't cut off MWT
-    if len(last_word[ID]) > 1:
+    last_id = last_word[ID]
+    if len(last_id) > 1:
         return False
-    if any(len(word[ID]) == 1 and word[HEAD] == last_word[ID][0] for word in sentence):
-        return False
+    last_id0 = last_id[0]
+    # Accelerate predicate by pre-filtering words with ID length == 1 and using generator to avoid constructing list
+    for word in sentence:
+        if len(word[ID]) == 1 and word[HEAD] == last_id0:
+            return False
     return True
 
 def augment_punct(train_data, augment_ratio,
