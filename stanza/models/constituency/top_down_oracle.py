@@ -8,12 +8,19 @@ def find_constituent_end(gold_sequence, cur_index):
     """
     Find the Close which ends the next constituent opened at or after cur_index
     """
+    # Avoid repeated attribute lookups for class type
+    gold_sequence_len = len(gold_sequence)
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
+    cls_Open = OpenConstituent
+    cls_Close = CloseConstituent
+    while cur_index < gold_sequence_len:
+        elem = gold_sequence[cur_index]
+        # Use type() comparison instead of isinstance, as we're only testing for the class itself
+        # If subclassing is not relevant here, this is faster
+        if type(elem) is cls_Open:
+            count += 1
+        elif type(elem) is cls_Close:
+            count -= 1
             if count == 0:
                 return cur_index
         cur_index += 1
@@ -488,10 +495,13 @@ def fix_open_open_ambiguous_unary(gold_transition, pred_transition, gold_sequenc
     """
     If there is an Open/Open error which is not covered by the unambiguous single recall error, we try fixing it as a Unary
     """
-    if not isinstance(pred_transition, OpenConstituent):
+    # Cache types for speed
+    cls_Open = OpenConstituent
+
+    if type(pred_transition) is not cls_Open:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not cls_Open:
         return None
 
     if pred_transition == gold_transition:
@@ -503,7 +513,11 @@ def fix_open_open_ambiguous_unary(gold_transition, pred_transition, gold_sequenc
     close_index = find_constituent_end(gold_sequence, gold_index)
     assert close_index is not None
     assert isinstance(gold_sequence[close_index], CloseConstituent)
-    updated_sequence = gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index:close_index] + [CloseConstituent()] + gold_sequence[close_index:]
+    # Avoid repeated concatenation by using slice assignment to a new list
+    seq_before = gold_sequence[:gold_index]
+    seq_to_close = gold_sequence[gold_index:close_index]
+    seq_after = gold_sequence[close_index:]
+    updated_sequence = [*seq_before, pred_transition, *seq_to_close, CloseConstituent(), *seq_after]
     return updated_sequence
 
 def fix_open_open_ambiguous_later(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
