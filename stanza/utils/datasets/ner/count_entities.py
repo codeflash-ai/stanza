@@ -1,4 +1,3 @@
-
 import argparse
 from collections import defaultdict
 import json
@@ -6,10 +5,15 @@ import json
 from stanza.models.common.doc import Document
 from stanza.utils.datasets.ner.utils import list_doc_entities
 
+_parser = None
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Report the coverage of one NER file on another.")
-    parser.add_argument('filename', type=str, nargs='+', help='File(s) to count')
-    args = parser.parse_args()
+    global _parser
+    if _parser is None:
+        parser = argparse.ArgumentParser(description="Report the coverage of one NER file on another.")
+        parser.add_argument('filename', type=str, nargs='+', help='File(s) to count')
+        _parser = parser
+    args = _parser.parse_args()
     return args
 
 
