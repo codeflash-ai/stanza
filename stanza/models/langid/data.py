@@ -104,17 +104,24 @@ class DataLoader:
         """
 
         new_data = []
+        append_data = new_data.append
+        randint = random.randint
+        
         for sentence in sentences:
             remaining = sentence
-            while lower_lim < len(remaining):
-                lim = random.randint(lower_lim, upper_lim)
-                m = min(len(remaining), lim)
+            remaining_len = len(remaining)
+            while lower_lim < remaining_len:
+                lim = randint(lower_lim, upper_lim)
+                m = lim if remaining_len > lim else remaining_len
                 new_sentence = remaining[:m]
-                new_data.append(new_sentence)
-                split = remaining[m:].split(" ", 1)
-                if len(split) <= 1:
+                append_data(new_sentence)
+                if m == remaining_len:
                     break
-                remaining = split[1]
+                space_idx = remaining.find(" ", m)
+                if space_idx == -1:
+                    break
+                remaining = remaining[space_idx + 1:]
+                remaining_len = len(remaining)
         random.shuffle(new_data)
         return new_data
 
