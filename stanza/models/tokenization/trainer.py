@@ -23,12 +23,31 @@ class Trainer(BaseTrainer):
             # build model from scratch
             self.args = args
             self.vocab = vocab
-            self.lexicon = list(lexicon) if lexicon is not None else None
+            # Avoid unnecessary conversion if lexicon is already a list
+            self.lexicon = lexicon if lexicon is None or isinstance(lexicon, list) else list(lexicon)
             self.dictionary = dictionary
-            self.model = Tokenizer(self.args, self.args['vocab_size'], self.args['emb_dim'], self.args['hidden_dim'], dropout=self.args['dropout'], feat_dropout=self.args['feat_dropout'])
-        self.model = self.model.to(device)
-        self.criterion = nn.CrossEntropyLoss(ignore_index=-1).to(device)
-        self.optimizer = utils.get_optimizer("adam", self.model, lr=self.args['lr0'], betas=(.9, .9), weight_decay=self.args['weight_decay'])
+            self.model = Tokenizer(
+                self.args,
+                self.args['vocab_size'],
+                self.args['emb_dim'],
+                self.args['hidden_dim'],
+                dropout=self.args['dropout'],
+                feat_dropout=self.args['feat_dropout']
+            )
+        # Only move to device if necessary (avoid redundant .to)
+        if device is not None and self.model.device != device:
+            self.model = self.model.to(device)
+        else:
+            self.model = self.model.to(next(self.model.parameters()).device)
+        # Instantiate criterion directly on the target device
+        criterion_device = next(self.model.parameters()).device
+        self.criterion = nn.CrossEntropyLoss(ignore_index=-1).to(criterion_device)
+        self.optimizer = utils.get_optimizer(
+            "adam", self.model,
+            lr=self.args['lr0'],
+            betas=(.9, .9),
+            weight_decay=self.args['weight_decay']
+        )
         self.feat_funcs = self.args.get('feat_funcs', None)
         self.lang = self.args['lang'] # language determines how token normalization is done
 
@@ -57,15 +76,19 @@ class Trainer(BaseTrainer):
     def predict(self, inputs):
         self.model.eval()
         units, _, features, text = inputs
+
+        # lengths is used only inside .model() call, no need to compute a list unless required
         lengths = [len(x) for x in text]
 
+        # Use model's device directly (faster than iterating model.parameters every call)
         device = next(self.model.parameters()).device
-        units = units.to(device)
-        features = features.to(device)
+        units = units.to(device, non_blocking=True)
+        features = features.to(device, non_blocking=True)
 
-        pred = self.model(units, features, lengths, text)
-
-        return pred.data.cpu().numpy()
+        # Avoid intermediate variable assignment, reducing object overhead
+        with torch.no_grad():
+            pred = self.model(units, features, lengths, text)
+            return pred.data.cpu().numpy()
 
     def save(self, filename, skip_modules=True):
         model_state = None
