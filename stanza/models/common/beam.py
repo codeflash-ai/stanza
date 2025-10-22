@@ -128,19 +128,33 @@ class Beam(object):
 
          Returns: The hypothesis
         """
-        hyp = []
-        cpy = []
-        for j in range(len(self.prevKs) - 1, -1, -1):
-            hyp.append(self.nextYs[j+1][k])
-            if len(self.copy) > 0:
-                cpy.append(self.copy[j][k])
-            k = self.prevKs[j][k]
+        num_time = len(self.prevKs)
+        # Preallocate and fill via index for improved performance over repeated .append and reverse
+        hyp = [0] * num_time
+        has_copy = len(self.copy) > 0
+        if has_copy:
+            cpy = [0] * num_time
+        else:
+            cpy = ()
+        cur_k = k
+        prevKs = self.prevKs
+        nextYs = self.nextYs
+        # Localize copy tensor and methods for efficiency
+        copy = self.copy
 
-        hyp = hyp[::-1]
-        cpy = cpy[::-1]
+        for j in range(num_time - 1, -1, -1):
+            # Direct assignment avoids append + reverse
+            hyp[j] = nextYs[j + 1][cur_k]
+            if has_copy:
+                cpy[j] = copy[j][cur_k]
+            cur_k = prevKs[j][cur_k]
+
         # postprocess: if cpy index is not -1, use cpy index instead of hyp word
-        for i,cidx in enumerate(cpy):
-            if cidx >= 0:
-                hyp[i] = -(cidx+1) # make index 1-based and flip it for token generation
+        if has_copy:
+            # Fast in-place update; avoid enumerate and Python indexing in main loop
+            cpy_tensor = torch.tensor(cpy)
+            pos_idx = (cpy_tensor >= 0).nonzero(as_tuple=True)[0]
+            for idx in pos_idx.tolist():
+                hyp[idx] = -(cpy[idx] + 1)  # make index 1-based and flip it for token generation
 
         return hyp
