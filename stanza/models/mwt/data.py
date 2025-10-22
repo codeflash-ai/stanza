@@ -50,16 +50,14 @@ class DataLoader:
             self.vocab = vocab
 
         # filter and sample data
-        if args.get('sample_train', 1.0) < 1.0 and not self.evaluation:
-            keep = int(args['sample_train'] * len(data))
-            data = random.sample(data, keep)
-            logger.debug("Subsample training set with rate {:g}".format(args['sample_train']))
+        sample_rate = args.get('sample_train', 1.0)
+        if sample_rate < 1.0 and not self.evaluation:
+            data = random.sample(data, int(sample_rate * len(data)))
+            logger.debug("Subsample training set with rate {:g}".format(sample_rate))
 
         # shuffle for training
         if not self.evaluation:
-            indices = list(range(len(data)))
-            random.shuffle(indices)
-            data = [data[i] for i in indices]
+            random.shuffle(data)
 
         self.data = data
         self.num_examples = len(data)
