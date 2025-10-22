@@ -41,25 +41,35 @@ class DataLoader:
         if vocab is None:
             assert self.evaluation == False # for eval vocab must exist
             self.vocab = self.init_vocab(data)
-            if self.augment_apos > 0 and any(x in self.vocab for x in APOS):
-                for apos in APOS:
-                    self.vocab.add_unit(apos)
+            # Optimize: Use set for APOS check and add_unit only if needed
+            if self.augment_apos > 0:
+                vocab_units = self.vocab._unit2id  # Direct member from Vocab for O(1) lookup
+                if any(apos in vocab_units for apos in APOS):
+                    for apos in APOS:
+                        if apos not in vocab_units:
+                            self.vocab.add_unit(apos)
         elif expand_unk_vocab:
             self.vocab = DeltaVocab(data, vocab)
         else:
             self.vocab = vocab
 
         # filter and sample data
-        if args.get('sample_train', 1.0) < 1.0 and not self.evaluation:
-            keep = int(args['sample_train'] * len(data))
-            data = random.sample(data, keep)
-            logger.debug("Subsample training set with rate {:g}".format(args['sample_train']))
+        sample_train = args.get('sample_train', 1.0)
+        if sample_train < 1.0 and not self.evaluation:
+            keep = int(sample_train * len(data))
+            if keep < len(data):
+                # More efficient to shuffle via random.sample (which does not copy original list)
+                data = random.sample(data, keep)
+            logger.debug("Subsample training set with rate {:g}".format(sample_train))
 
         # shuffle for training
         if not self.evaluation:
-            indices = list(range(len(data)))
-            random.shuffle(indices)
-            data = [data[i] for i in indices]
+            # More efficient in-place shuffle if NOT subsampled
+            if sample_train == 1.0 or keep == len(data):
+                random.shuffle(data)
+            else:
+                # already sampled in random order by random.sample
+                pass
 
         self.data = data
         self.num_examples = len(data)
