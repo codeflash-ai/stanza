@@ -29,6 +29,18 @@ import argparse
 from collections import Counter
 import sys
 
+_mapping = {
+    "inst": "ORG",
+    "product": "OBJ",
+    "other": "OTH",
+    "place": "LOC",
+    "myth": "PER",
+    "person": "PER",
+    "event": "EVN",
+    "work": "WRK",
+    "animal": "PER",
+}
+
 def parse(fp, skiptypes=[]):
     root = None
     ne_prefix = ""
@@ -99,18 +111,7 @@ def ne_type_to_label(ne_type):
     return mapping.get(ne_type, ne_type)
 
 def name_type_to_label(name_type):
-    mapping = {
-        "inst": "ORG",
-        "product": "OBJ",
-        "other": "OTH",
-        "place": "LOC",
-        "myth": "PER",
-        "person": "PER",
-        "event": "EVN",
-        "work": "WRK",
-        "animal": "PER",
-    }
-    return mapping.get(name_type)
+    return _mapping.get(name_type)
 
 def main(args=None):
     parser = argparse.ArgumentParser()
