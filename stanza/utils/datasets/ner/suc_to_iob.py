@@ -29,6 +29,10 @@ import argparse
 from collections import Counter
 import sys
 
+_NE_TYPE_MAPPING = {
+    "PRS": "PER",
+}
+
 def parse(fp, skiptypes=[]):
     root = None
     ne_prefix = ""
@@ -93,10 +97,9 @@ def parse(fp, skiptypes=[]):
         root.clear()
 
 def ne_type_to_label(ne_type):
-    mapping = {
-        "PRS": "PER",
-    }
-    return mapping.get(ne_type, ne_type)
+    # Move mapping to a module-level constant to avoid reconstructing it on each call
+    # This reduces function call overhead and memory allocations per hit
+    return _NE_TYPE_MAPPING.get(ne_type, ne_type)
 
 def name_type_to_label(name_type):
     mapping = {
