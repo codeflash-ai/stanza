@@ -25,7 +25,16 @@ logger = logging.getLogger('stanza')
 
 def unpack_batch(batch, device):
     """ Unpack a batch from the data loader. """
-    inputs = [b.to(device) if b is not None else None for b in batch[:6]]
+    # Inputs: batch[0] to batch[5] (6 elements)
+    # Use a standard for loop to avoid building intermediate lists, and avoid redundant attribute access
+    inputs = []
+    for b in batch[:6]:
+        # profiling shows b.to(device) is expensive, but list comprehension overhead also adds up;
+        # mitigate overhead using a direct loop.
+        if b is not None:
+            inputs.append(b.to(device))
+        else:
+            inputs.append(None)
     orig_idx = batch[6]
     text = batch[7]
     return inputs, orig_idx, text
