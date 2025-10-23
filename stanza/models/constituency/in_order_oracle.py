@@ -67,7 +67,8 @@ def fix_wrong_open_multiple_subtrees(gold_transition, pred_transition, gold_sequ
     return fix_wrong_open_subtrees(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, more_than_two=True)
 
 def advance_past_unaries(gold_sequence, cur_index):
-    while cur_index + 2 < len(gold_sequence) and isinstance(gold_sequence[cur_index], OpenConstituent) and isinstance(gold_sequence[cur_index+1], CloseConstituent):
+    n = len(gold_sequence)
+    while cur_index + 2 < n and type(gold_sequence[cur_index]) is OpenConstituent and type(gold_sequence[cur_index+1]) is CloseConstituent:
         cur_index += 2
     return cur_index
 
