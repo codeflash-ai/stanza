@@ -1349,7 +1349,7 @@ class Token(StanzaObject):
         return (value is None) or (value == '_')
 
     def is_mwt(self):
-        return len(self.words) > 1
+        return len(self._words) > 1
 
 class Word(StanzaObject):
     """ A word class that stores attributes of a word.
