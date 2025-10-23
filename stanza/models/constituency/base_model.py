@@ -501,7 +501,10 @@ class SimpleModel(BaseModel):
         return word_queues
 
     def initial_transitions(self):
-        return TreeStack(value=None, parent=None, length=1)
+        # Reuse a single static TreeStack instance for efficiency
+        if not hasattr(self, '_initial_stack'):
+            self._initial_stack = TreeStack(value=None, parent=None, length=1)
+        return self._initial_stack
 
     def initial_constituents(self):
         return TreeStack(value=None, parent=None, length=1)
