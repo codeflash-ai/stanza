@@ -12,24 +12,32 @@ def fix_sentence(sentence):
 
     This covers 11 sentences: 1 P-PERSON, 2 with line breaks in the middle of the tag, and 8 with no B- or I-
     """
+    # Precompute tag replacements for faster lookup
+    tag_map = {
+        'P-PERSON': 'B-PERSON',
+        'B-OT"': 'B-OTHERS',
+        'B-T"': 'B-TITLE',
+    }
+    tag_set = {'GPE', 'LOC', 'OTHERS'}
+    # Avoid repeated attribute lookups and slicing by handling in a more direct way
     new_sentence = []
-    for word_idx, word in enumerate(sentence):
-        if word[1] == 'P-PERSON':
-            new_sentence.append((word[0], 'B-PERSON'))
-        elif word[1] == 'B-OT"':
-            new_sentence.append((word[0], 'B-OTHERS'))
-        elif word[1] == 'B-T"':
-            new_sentence.append((word[0], 'B-TITLE'))
-        elif word[1] in ('GPE', 'LOC', 'OTHERS'):
-            if len(new_sentence) > 0 and new_sentence[-1][1][:2] in ('B-', 'I-') and new_sentence[-1][1][2:] == word[1]:
-                # one example... no idea if it should be a break or
-                # not, but the last word translates to "Corporation",
-                # so probably not: ميٽرو پوليٽن ڪارپوريشن
-                new_sentence.append((word[0], 'I-' + word[1]))
-            else:
-                new_sentence.append((word[0], 'B-' + word[1]))
+    append = new_sentence.append  # localize for better loop speed
+    for word in sentence:
+        tag = word[1]
+        if tag in tag_map:
+            append((word[0], tag_map[tag]))
+        elif tag in tag_set:
+            if new_sentence:
+                prev_tag = new_sentence[-1][1]
+                if prev_tag[:2] in ('B-', 'I-') and prev_tag[2:] == tag:
+                    # one example... no idea if it should be a break or
+                    # not, but the last word translates to "Corporation",
+                    # so probably not: ميٽرو پوليٽن ڪارپوريشن
+                    append((word[0], 'I-' + tag))
+                    continue
+            append((word[0], 'B-' + tag))
         else:
-            new_sentence.append(word)
+            append(word)
     return new_sentence
 
 def convert_sindhi_siner(in_filename, out_directory, short_name, train_frac=0.8, dev_frac=0.1):
