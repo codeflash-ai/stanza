@@ -504,7 +504,7 @@ class SimpleModel(BaseModel):
         return TreeStack(value=None, parent=None, length=1)
 
     def initial_constituents(self):
-        return TreeStack(value=None, parent=None, length=1)
+        return TreeStack(None, None, 1)
 
     def get_word(self, word_node):
         return word_node
