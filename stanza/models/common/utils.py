@@ -736,7 +736,7 @@ def space_before_to_misc(space):
     if not space:
         return ""
     escaped_space = escape_misc_space(space)
-    return "SpacesBefore=%s" % escaped_space
+    return f"SpacesBefore={escaped_space}"
 
 def space_after_to_misc(space):
     """
@@ -747,7 +747,7 @@ def space_after_to_misc(space):
     if space == " ":
         return ""
     escaped_space = escape_misc_space(space)
-    return "SpacesAfter=%s" % escaped_space
+    return f"SpacesAfter={escaped_space}"
 
 def misc_to_space_before(misc):
     """

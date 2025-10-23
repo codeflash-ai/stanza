@@ -1293,51 +1293,60 @@ class Token(StanzaObject):
         if the token is a multi-word token.
         """
         ret = []
-        if len(self.id) > 1:
+        id_len = len(self.id)
+        # Multi-word token handling
+        if id_len > 1:
             token_dict = {}
             for field in fields:
-                if getattr(self, field, None) is not None:
-                    token_dict[field] = getattr(self, field)
+                value = getattr(self, field, None)
+                if value is not None:
+                    token_dict[field] = value
             if MISC in fields:
                 spaces_after = self.spaces_after
+                spaces_before = self.spaces_before
+                has_misc = token_dict.get(MISC)
                 if spaces_after is not None and spaces_after != ' ':
                     space_misc = space_after_to_misc(spaces_after)
-                    if token_dict.get(MISC):
-                        token_dict[MISC] = token_dict[MISC] + "|" + space_misc
+                    if has_misc:
+                        token_dict[MISC] = has_misc + "|" + space_misc
                     else:
                         token_dict[MISC] = space_misc
 
-                spaces_before = self.spaces_before
                 if spaces_before is not None and spaces_before != '':
                     space_misc = space_before_to_misc(spaces_before)
-                    if token_dict.get(MISC):
-                        token_dict[MISC] = token_dict[MISC] + "|" + space_misc
+                    misc_val = token_dict.get(MISC)
+                    if misc_val:
+                        token_dict[MISC] = misc_val + "|" + space_misc
                     else:
                         token_dict[MISC] = space_misc
 
             ret.append(token_dict)
+
         for word in self.words:
             word_dict = word.to_dict(fields)
-            if len(self.id) == 1 and NER in fields and getattr(self, NER) is not None: # propagate NER label to Word if it is a single-word token
-                word_dict[NER] = getattr(self, NER)
-            if len(self.id) == 1 and MULTI_NER in fields and getattr(self, MULTI_NER) is not None: # propagate MULTI_NER label to Word if it is a single-word token
-                word_dict[MULTI_NER] = getattr(self, MULTI_NER)
-            if len(self.id) == 1 and MISC in fields:
-                spaces_after = self.spaces_after
-                if spaces_after is not None and spaces_after != ' ':
-                    space_misc = space_after_to_misc(spaces_after)
-                    if word_dict.get(MISC):
-                        word_dict[MISC] = word_dict[MISC] + "|" + space_misc
-                    else:
-                        word_dict[MISC] = space_misc
+            if id_len == 1:
+                if NER in fields and getattr(self, NER) is not None: # propagate NER label to Word if it is a single-word token
+                    word_dict[NER] = getattr(self, NER)
+                if MULTI_NER in fields and getattr(self, MULTI_NER) is not None: # propagate MULTI_NER label to Word if it is a single-word token
+                    word_dict[MULTI_NER] = getattr(self, MULTI_NER)
+                if MISC in fields:
+                    spaces_after = self.spaces_after
+                    spaces_before = self.spaces_before
+                    has_misc = word_dict.get(MISC)
+                    if spaces_after is not None and spaces_after != ' ':
+                        space_misc = space_after_to_misc(spaces_after)
+                        if has_misc:
+                            word_dict[MISC] = has_misc + "|" + space_misc
+                        else:
+                            word_dict[MISC] = space_misc
 
-                spaces_before = self.spaces_before
-                if spaces_before is not None and spaces_before != '':
-                    space_misc = space_before_to_misc(spaces_before)
-                    if word_dict.get(MISC):
-                        word_dict[MISC] = word_dict[MISC] + "|" + space_misc
-                    else:
-                        word_dict[MISC] = space_misc
+                    if spaces_before is not None and spaces_before != '':
+                        space_misc = space_before_to_misc(spaces_before)
+                        misc_val = word_dict.get(MISC)
+                        if misc_val:
+                            word_dict[MISC] = misc_val + "|" + space_misc
+                        else:
+                            word_dict[MISC] = space_misc
             ret.append(word_dict)
         return ret
 
