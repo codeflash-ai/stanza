@@ -68,11 +68,13 @@ def arrange_spans_by_sentence(coref_spans, sentences):
 
     current_index = 0
     span_idx = 0
+    coref_spans_len = len(coref_spans)
     for sentence in sentences:
         current_sentence_spans = []
         end_index = current_index + len(sentence)
-        while span_idx < len(coref_spans) and coref_spans[span_idx][1] < end_index:
-            new_span = [coref_spans[span_idx][0], coref_spans[span_idx][1] - current_index, coref_spans[span_idx][2] - current_index]
+        while span_idx < coref_spans_len and coref_spans[span_idx][1] < end_index:
+            span = coref_spans[span_idx]
+            new_span = [span[0], span[1] - current_index, span[2] - current_index]
             current_sentence_spans.append(new_span)
             span_idx += 1
         sentence_spans.append(current_sentence_spans)
