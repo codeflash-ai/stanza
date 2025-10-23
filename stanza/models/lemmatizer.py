@@ -113,9 +113,13 @@ def main(args=None):
         evaluate(args)
 
 def all_lowercase(doc):
+    # Pre-compute str.lower to a local name for faster access
+    lower = str.lower
     for sentence in doc.sentences:
         for word in sentence.words:
-            if word.text.lower() != word.text:
+            text = word.text
+            # remove extra attribute lookups and call lower() once per word
+            if lower(text) != text:
                 return False
     return True
 
