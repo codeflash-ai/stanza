@@ -1666,7 +1666,7 @@ class Span(StanzaObject):
         assert span_entry is not None or (tokens is not None and type is not None), \
                 'Either a span_entry or a token list needs to be provided to construct a span.'
         assert doc is not None, 'A parent doc must be provided to construct a span.'
-        self._text, self._type, self._start_char, self._end_char = [None] * 4
+        self._text, self._type, self._start_char, self._end_char = None, None, None, None
         self._tokens = []
         self._words = []
         self._doc = doc
@@ -1796,9 +1796,13 @@ class Span(StanzaObject):
 
     def to_dict(self):
         """ Dumps the span into a dictionary. """
-        attrs = ['text', 'type', 'start_char', 'end_char']
-        span_dict = dict([(attr_name, getattr(self, attr_name)) for attr_name in attrs])
-        return span_dict
+        # Avoid list comprehension + getattr overhead for just 4 attributes
+        return {
+            'text': self.text,
+            'type': self.type,
+            'start_char': self.start_char,
+            'end_char': self.end_char,
+        }
 
     def __repr__(self):
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False, cls=DocJSONEncoder)
