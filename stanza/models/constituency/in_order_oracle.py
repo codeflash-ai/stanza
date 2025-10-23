@@ -25,9 +25,10 @@ def fix_wrong_open_unary_chain(gold_transition, pred_transition, gold_sequence, 
     if gold_transition == pred_transition:
         return None
 
-    if isinstance(gold_transition, OpenConstituent) and isinstance(pred_transition, OpenConstituent):
+    if type(gold_transition) is OpenConstituent and type(pred_transition) is OpenConstituent:
+        seq_len = len(gold_sequence)
         cur_index = gold_index + 1  # This is now a Close if we are in this particular context
-        while cur_index + 1 < len(gold_sequence) and isinstance(gold_sequence[cur_index], CloseConstituent) and isinstance(gold_sequence[cur_index+1], OpenConstituent):
+        while cur_index + 1 < seq_len and type(gold_sequence[cur_index]) is CloseConstituent and type(gold_sequence[cur_index+1]) is OpenConstituent:
             cur_index = cur_index + 1  # advance to the next Open
             if gold_sequence[cur_index] == pred_transition:
                 return gold_sequence[:gold_index] + gold_sequence[cur_index:]
