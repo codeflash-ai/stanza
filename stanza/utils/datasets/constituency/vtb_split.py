@@ -32,14 +32,16 @@ def create_paths(split_dir, short_name):
     :param split_dir: directory that stores the splits
     :return: train path, dev path, test path
     """
-    if not short_name:
+    if short_name:
+        if not short_name.endswith("_"):
+            short_name += "_"
+    else:
         short_name = ""
-    elif not short_name.endswith("_"):
-        short_name = short_name + "_"
 
-    train_path = os.path.join(split_dir, '%strain.mrg' % short_name)
-    dev_path = os.path.join(split_dir, '%sdev.mrg' % short_name)
-    test_path = os.path.join(split_dir, '%stest.mrg' % short_name)
+    # Use f-string formatting to avoid '%' interpolation overhead and reduce number of string operations
+    train_path = os.path.join(split_dir, f"{short_name}train.mrg")
+    dev_path = os.path.join(split_dir, f"{short_name}dev.mrg")
+    test_path = os.path.join(split_dir, f"{short_name}test.mrg")
 
     return train_path, dev_path, test_path
 
