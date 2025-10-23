@@ -120,14 +120,16 @@ def all_lowercase(doc):
     return True
 
 def build_model_filename(args):
-    embedding = "nocharlm"
-    if args['charlm'] and args['charlm_forward_file']:
-        embedding = "charlm"
-    model_file = args['save_name'].format(shorthand=args['shorthand'],
-                                          embedding=embedding)
-    model_dir = os.path.split(model_file)[0]
-    if not model_dir.startswith(args['save_dir']):
-        model_file = os.path.join(args['save_dir'], model_file)
+    embedding = "charlm" if args['charlm'] and args['charlm_forward_file'] else "nocharlm"
+    # Precompute model_file and possible join ahead to avoid multiple splits/join
+    model_file = args['save_name'].format(shorthand=args['shorthand'], embedding=embedding)
+    save_dir = args['save_dir']
+    # Fast path: if model_file is already absolute and starts with save_dir, return early
+    # Avoids os.path.split()
+    if not model_file.startswith(save_dir):
+        # model_file may be a relative path, or in a different tree
+        # If model_file is absolute, os.path.join ignores save_dir, but that's fine for this logic
+        model_file = os.path.join(save_dir, model_file)
     return model_file
 
 def train(args):
