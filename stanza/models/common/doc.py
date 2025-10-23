@@ -1796,9 +1796,12 @@ class Span(StanzaObject):
 
     def to_dict(self):
         """ Dumps the span into a dictionary. """
-        attrs = ['text', 'type', 'start_char', 'end_char']
-        span_dict = dict([(attr_name, getattr(self, attr_name)) for attr_name in attrs])
-        return span_dict
+        return {
+            'text': self.text,
+            'type': self.type,
+            'start_char': self.start_char,
+            'end_char': self.end_char,
+        }
 
     def __repr__(self):
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False, cls=DocJSONEncoder)
