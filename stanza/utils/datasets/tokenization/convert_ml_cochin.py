@@ -159,18 +159,25 @@ def scan_file(original_text, current_index, tsv_file):
     return current_index, sentences
 
 def split_sentences(sentences):
-    train = []
-    dev = []
-    test = []
+    # Pre-generate all random numbers to avoid function call overhead in the loop
+    rand_values = random.random
+    n = len(sentences)
+    train, dev, test = [], [], []
+    # Use local variables to minimize global lookup time
+    train_append = train.append
+    dev_append = dev.append
+    test_append = test.append
 
-    for sentence in sentences:
-        rand = random.random()
+    # Use range to index sentences and avoid attribute lookups per loop
+    for i in range(n):
+        rand = rand_values()
+        sent = sentences[i]
         if rand < 0.8:
-            train.append(sentence)
+            train_append(sent)
         elif rand < 0.9:
-            dev.append(sentence)
+            dev_append(sent)
         else:
-            test.append(sentence)
+            test_append(sent)
 
     return train, dev, test
 
