@@ -82,11 +82,11 @@ def find_previous_open(gold_sequence, cur_index):
     count = 0
     cur_index = cur_index - 1
     while cur_index >= 0:
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
+        if type(gold_sequence[cur_index]) is OpenConstituent:
             count = count + 1
             if count > 0:
                 return cur_index
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
+        elif type(gold_sequence[cur_index]) is CloseConstituent:
             count = count - 1
         cur_index = cur_index - 1
     return None
