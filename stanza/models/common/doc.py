@@ -1293,7 +1293,9 @@ class Token(StanzaObject):
         if the token is a multi-word token.
         """
         ret = []
-        if len(self.id) > 1:
+        len_id = len(self.id)
+        
+        if len_id > 1:
             token_dict = {}
             for field in fields:
                 if getattr(self, field, None) is not None:
@@ -1316,13 +1318,16 @@ class Token(StanzaObject):
                         token_dict[MISC] = space_misc
 
             ret.append(token_dict)
+        
+        # Cache len check result for the loop
+        is_single_word = len_id == 1
         for word in self.words:
             word_dict = word.to_dict(fields)
-            if len(self.id) == 1 and NER in fields and getattr(self, NER) is not None: # propagate NER label to Word if it is a single-word token
+            if is_single_word and NER in fields and getattr(self, NER) is not None: # propagate NER label to Word if it is a single-word token
                 word_dict[NER] = getattr(self, NER)
-            if len(self.id) == 1 and MULTI_NER in fields and getattr(self, MULTI_NER) is not None: # propagate MULTI_NER label to Word if it is a single-word token
+            if is_single_word and MULTI_NER in fields and getattr(self, MULTI_NER) is not None: # propagate MULTI_NER label to Word if it is a single-word token
                 word_dict[MULTI_NER] = getattr(self, MULTI_NER)
-            if len(self.id) == 1 and MISC in fields:
+            if is_single_word and MISC in fields:
                 spaces_after = self.spaces_after
                 if spaces_after is not None and spaces_after != ' ':
                     space_misc = space_after_to_misc(spaces_after)
