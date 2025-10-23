@@ -67,7 +67,7 @@ def fix_wrong_open_multiple_subtrees(gold_transition, pred_transition, gold_sequ
     return fix_wrong_open_subtrees(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, more_than_two=True)
 
 def advance_past_unaries(gold_sequence, cur_index):
-    while cur_index + 2 < len(gold_sequence) and isinstance(gold_sequence[cur_index], OpenConstituent) and isinstance(gold_sequence[cur_index+1], CloseConstituent):
+    while cur_index + 2 < len(gold_sequence) and type(gold_sequence[cur_index]) is OpenConstituent and type(gold_sequence[cur_index+1]) is CloseConstituent:
         cur_index += 2
     return cur_index
 
@@ -412,22 +412,22 @@ def fix_close_open_shift_nested(gold_transition, pred_transition, gold_sequence,
     the missed close & open means a missed recall error for (X A B)
     whereas the previous open_X can still get the outer bracket
     """
-    if not isinstance(gold_transition, CloseConstituent):
+    if type(gold_transition) is not CloseConstituent:
         return None
-    if not isinstance(pred_transition, Shift):
+    if type(pred_transition) is not Shift:
         return None
 
     if len(gold_sequence) < gold_index + 3:
         return None
-    if not isinstance(gold_sequence[gold_index+1], OpenConstituent):
+    if type(gold_sequence[gold_index+1]) is not OpenConstituent:
         return None
 
     # handle the sequence:
     #   stuff_A open_X stuff_B close open_Y close open_X shift
     open_index = advance_past_unaries(gold_sequence, gold_index+1)
-    if not isinstance(gold_sequence[open_index], OpenConstituent):
+    if type(gold_sequence[open_index]) is not OpenConstituent:
         return None
-    if not isinstance(gold_sequence[open_index+1], Shift):
+    if type(gold_sequence[open_index+1]) is not Shift:
         return None
 
     # check that the next operation was to open the same constituent
