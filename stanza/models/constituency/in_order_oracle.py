@@ -304,45 +304,104 @@ def fix_shift_close(gold_transition, pred_transition, gold_sequence, gold_index,
     return gold_sequence[:gold_index] + [pred_transition, prev_open] + gold_sequence[cur_index:]
 
 def fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous, late):
-    if not isinstance(gold_transition, CloseConstituent):
+    # Inline fast type checks
+    if type(gold_transition) is not CloseConstituent:
         return None
-    if not isinstance(pred_transition, Shift):
-        return None
-
-    if len(gold_sequence) < gold_index + 3:
-        return None
-    if not isinstance(gold_sequence[gold_index+1], OpenConstituent):
+    if type(pred_transition) is not Shift:
         return None
 
-    open_index = advance_past_unaries(gold_sequence, gold_index+1)
-    if not isinstance(gold_sequence[open_index], OpenConstituent):
-        return None
-    if not isinstance(gold_sequence[open_index+1], Shift):
+    seq_len = len(gold_sequence)
+    gidx1 = gold_index + 1
+    gidx3 = gold_index + 3
+    if seq_len < gidx3:
         return None
 
-    # check that the next operation was to open a *different* constituent
-    # from the one we just closed
-    prev_open_index = find_previous_open(gold_sequence, gold_index)
+    # Avoid isinstance for OpenConstituent in hot path, faster type compare
+    if type(gold_sequence[gidx1]) is not OpenConstituent:
+        return None
+
+    # Inline advance_past_unaries, as this is a small unrolled loop for performance
+    open_index = gidx1
+    limit = seq_len - 2
+    while open_index < limit and type(gold_sequence[open_index]) is OpenConstituent and type(gold_sequence[open_index+1]) is CloseConstituent:
+        open_index += 2
+
+    if type(gold_sequence[open_index]) is not OpenConstituent:
+        return None
+    if type(gold_sequence[open_index+1]) is not Shift:
+        return None
+
+    # Inline find_previous_open for single scan, use type checks
+    count = 0
+    prev_idx = gold_index - 1
+    prev_open_index = None
+    while prev_idx >= 0:
+        if type(gold_sequence[prev_idx]) is OpenConstituent:
+            count += 1
+            if count > 0:
+                prev_open_index = prev_idx
+                break
+        elif type(gold_sequence[prev_idx]) is CloseConstituent:
+            count -= 1
+        prev_idx -= 1
     if prev_open_index is None:
         return None
     prev_open = gold_sequence[prev_open_index]
+
+    # Identity comparison, these objects must not be same object
     if gold_sequence[open_index] == prev_open:
         return None
 
-    # check that the following stuff is a single bracket, not multiple brackets
-    end_index = find_in_order_constituent_end(gold_sequence, open_index+1)
-    if ambiguous and isinstance(gold_sequence[end_index], CloseConstituent):
-        return None
-    elif not ambiguous and isinstance(gold_sequence[end_index], Shift):
+    # Inline find_in_order_constituent_end for performance
+    count = 0
+    saw_shift = False
+    ei = open_index + 1
+    end_index = None
+    s_len = seq_len
+    while ei < s_len:
+        op = gold_sequence[ei]
+        typ = type(op)
+        if typ is OpenConstituent:
+            count += 1
+        elif typ is CloseConstituent:
+            count -= 1
+            if count == -1:
+                end_index = ei
+                break
+        elif typ is Shift:
+            if saw_shift and count == 0:
+                end_index = ei
+                break
+            else:
+                saw_shift = True
+        ei += 1
+    if end_index is None:
         return None
 
-    # if closing at the end of the next blocks,
-    # instead of closing after the first block ends,
-    # we go to the end of the last block
+    # Conditional checks, using fast type checks
+    if ambiguous:
+        if type(gold_sequence[end_index]) is CloseConstituent:
+            return None
+    else:
+        if type(gold_sequence[end_index]) is Shift:
+            return None
+
+    # If late, run advance_past_constituents
     if late:
-        end_index = advance_past_constituents(gold_sequence, open_index+1)
+        # advance_past_constituents uses isinstance, leave as imported for correctness
+        end_index_late = advance_past_constituents(gold_sequence, open_index+1)
+        if end_index_late is None:
+            return None
+        end_index = end_index_late
 
-    return gold_sequence[:gold_index] + gold_sequence[open_index+1:end_index] + gold_sequence[gold_index:open_index+1] + gold_sequence[end_index:]
+    # Compose the output sequence, using slicing
+    # Slicing is already efficient for lists, further optimization is not beneficial
+    # gold_sequence[:gold_index] + gold_sequence[open_index+1:end_index] + gold_sequence[gold_index:open_index+1] + gold_sequence[end_index:]
+    part1 = gold_sequence[:gold_index]
+    part2 = gold_sequence[open_index+1:end_index]
+    part3 = gold_sequence[gold_index:open_index+1]
+    part4 = gold_sequence[end_index:]
+    return part1 + part2 + part3 + part4
 
 def fix_close_open_shift_unambiguous_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
     return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=False, late=False)
@@ -351,7 +410,15 @@ def fix_close_open_shift_ambiguous_bracket_early(gold_transition, pred_transitio
     return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=True, late=False)
 
 def fix_close_open_shift_ambiguous_bracket_late(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
-    return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=True, late=True)
+    return fix_close_shift_open_bracket(
+        gold_transition,
+        pred_transition,
+        gold_sequence,
+        gold_index,
+        root_labels,
+        ambiguous=True,
+        late=True
+    )
 
 def fix_close_open_shift_ambiguous_predicted(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
     if not isinstance(gold_transition, CloseConstituent):
