@@ -40,27 +40,27 @@ def remove_nulls(coref_spans, sentences):
       ->
       [[0, 2], [30, 32], [129, 131], [155, 156]]
     """
-    word_map = []
+    # Pre-allocate a sufficiently large list for word_map to avoid multiple resizing
+    total_words = sum(len(sentence) for sentence in sentences)
+    word_map = [0] * total_words
     word_idx = 0
     map_idx = 0
     new_sentences = []
     for sentence in sentences:
         new_sentence = []
         for word in sentence:
-            word_map.append(map_idx)
+            word_map[word_idx] = map_idx
             word_idx += 1
             if word != '' and word != 'NULL':
                 new_sentence.append(word)
                 map_idx += 1
         new_sentences.append(new_sentence)
 
-    new_spans = []
-    for mention in coref_spans:
-        new_mention = []
-        for span in mention:
-            span = [word_map[x] for x in span]
-            new_mention.append(span)
-        new_spans.append(new_mention)
+    # Use list comprehensions for more efficient span remapping
+    new_spans = [
+        [[word_map[x[0]], word_map[x[1]]] if len(x) == 2 else [word_map[y] for y in x] for x in mention]
+        for mention in coref_spans
+    ]
     return new_spans, new_sentences
 
 def arrange_spans_by_sentence(coref_spans, sentences):
