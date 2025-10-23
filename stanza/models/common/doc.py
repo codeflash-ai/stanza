@@ -1015,7 +1015,7 @@ def init_from_misc(unit):
 
 
 def dict_to_conll_text(token_dict, id_connector="-"):
-    token_conll = ['_' for i in range(FIELD_NUM)]
+    token_conll = ['_'] * FIELD_NUM
 
     misc = []
     if token_dict.get(MISC):
@@ -1030,7 +1030,7 @@ def dict_to_conll_text(token_dict, id_connector="-"):
     # in the token_dict
     for key in [START_CHAR, END_CHAR, NER]:
         if key in token_dict:
-            misc.append("{}={}".format(key, token_dict[key]))
+            misc.append(f"{key}={token_dict[key]}")
 
     if COREF_CHAINS in token_dict:
         chains = token_dict[COREF_CHAINS]
@@ -1049,18 +1049,18 @@ def dict_to_conll_text(token_dict, id_connector="-"):
                 misc_chains.append("%s%sid%d" % (coref_position, is_representative, chain.chain.index))
             misc.append("{}={}".format(key, ",".join(misc_chains)))
 
-    for key in token_dict.keys():
+    for key, val in token_dict.items():
         if key == ID:
-            token_conll[FIELD_TO_IDX[key]] = id_connector.join([str(x) for x in token_dict[key]]) if isinstance(token_dict[key], tuple) else str(token_dict[key])
+            token_conll[FIELD_TO_IDX[key]] = id_connector.join([str(x) for x in val]) if isinstance(val, tuple) else str(val)
         elif key == FEATS:
-            feats = token_dict[key]
+            feats = val
             if feats:
                 pieces = feats.split("|")
                 pieces = sorted(pieces, key=str.casefold)
                 feats = "|".join(pieces)
             token_conll[FIELD_TO_IDX[key]] = str(feats)
         elif key in FIELD_TO_IDX:
-            token_conll[FIELD_TO_IDX[key]] = str(token_dict[key])
+            token_conll[FIELD_TO_IDX[key]] = str(val)
         elif key == LINE_NUMBER:
             # skip this when converting back for now
             pass
@@ -1286,58 +1286,75 @@ class Token(StanzaObject):
             return str(self)
 
     def to_conll_text(self, fields=DEFAULT_OUTPUT_FIELDS):
-        return "\n".join(dict_to_conll_text(x) for x in self.to_dict(fields))
+        # List comprehension and join is marginally faster and typically preferred over generator expression for short lists
+        dicts = self.to_dict(fields)
+        # Using list comprehension avoids repeated function call overhead
+        # Given profiler, this call is a tight hotspot
+        return "\n".join([dict_to_conll_text(x) for x in dicts])
 
     def to_dict(self, fields=DEFAULT_OUTPUT_FIELDS):
         """ Dumps the token into a list of dictionary for this token with its extended words
         if the token is a multi-word token.
         """
         ret = []
-        if len(self.id) > 1:
+        id_len = len(self.id)
+        # Fast path for id length check to avoid repeated len() calls in tight loop
+        if id_len > 1:
             token_dict = {}
+            # Pre-localize getattr for speed in tight for loop (avoid double attribute lookup)
+            _getattr = getattr
             for field in fields:
-                if getattr(self, field, None) is not None:
-                    token_dict[field] = getattr(self, field)
+                v = _getattr(self, field, None)
+                if v is not None:
+                    token_dict[field] = v
             if MISC in fields:
                 spaces_after = self.spaces_after
                 if spaces_after is not None and spaces_after != ' ':
                     space_misc = space_after_to_misc(spaces_after)
-                    if token_dict.get(MISC):
-                        token_dict[MISC] = token_dict[MISC] + "|" + space_misc
+                    misc_val = token_dict.get(MISC)
+                    if misc_val:
+                        token_dict[MISC] = misc_val + "|" + space_misc
                     else:
                         token_dict[MISC] = space_misc
 
                 spaces_before = self.spaces_before
                 if spaces_before is not None and spaces_before != '':
                     space_misc = space_before_to_misc(spaces_before)
-                    if token_dict.get(MISC):
-                        token_dict[MISC] = token_dict[MISC] + "|" + space_misc
+                    misc_val = token_dict.get(MISC)
+                    if misc_val:
+                        token_dict[MISC] = misc_val + "|" + space_misc
                     else:
                         token_dict[MISC] = space_misc
 
             ret.append(token_dict)
         for word in self.words:
             word_dict = word.to_dict(fields)
-            if len(self.id) == 1 and NER in fields and getattr(self, NER) is not None: # propagate NER label to Word if it is a single-word token
-                word_dict[NER] = getattr(self, NER)
-            if len(self.id) == 1 and MULTI_NER in fields and getattr(self, MULTI_NER) is not None: # propagate MULTI_NER label to Word if it is a single-word token
-                word_dict[MULTI_NER] = getattr(self, MULTI_NER)
-            if len(self.id) == 1 and MISC in fields:
-                spaces_after = self.spaces_after
-                if spaces_after is not None and spaces_after != ' ':
-                    space_misc = space_after_to_misc(spaces_after)
-                    if word_dict.get(MISC):
-                        word_dict[MISC] = word_dict[MISC] + "|" + space_misc
-                    else:
-                        word_dict[MISC] = space_misc
+            # Instead of repeated len()/getattr, compute once (profiling showed these lines are hot)
+            if id_len == 1:
+                ner_val = getattr(self, NER, None)
+                if NER in fields and ner_val is not None:
+                    word_dict[NER] = ner_val
+                multi_ner_val = getattr(self, MULTI_NER, None)
+                if MULTI_NER in fields and multi_ner_val is not None:
+                    word_dict[MULTI_NER] = multi_ner_val
+                if MISC in fields:
+                    spaces_after = self.spaces_after
+                    if spaces_after is not None and spaces_after != ' ':
+                        space_misc = space_after_to_misc(spaces_after)
+                        misc_val = word_dict.get(MISC)
+                        if misc_val:
+                            word_dict[MISC] = misc_val + "|" + space_misc
+                        else:
+                            word_dict[MISC] = space_misc
 
-                spaces_before = self.spaces_before
-                if spaces_before is not None and spaces_before != '':
-                    space_misc = space_before_to_misc(spaces_before)
-                    if word_dict.get(MISC):
-                        word_dict[MISC] = word_dict[MISC] + "|" + space_misc
-                    else:
-                        word_dict[MISC] = space_misc
+                    spaces_before = self.spaces_before
+                    if spaces_before is not None and spaces_before != '':
+                        space_misc = space_before_to_misc(spaces_before)
+                        misc_val = word_dict.get(MISC)
+                        if misc_val:
+                            word_dict[MISC] = misc_val + "|" + space_misc
+                        else:
+                            word_dict[MISC] = space_misc
             ret.append(word_dict)
         return ret
 
