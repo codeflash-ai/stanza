@@ -39,12 +39,12 @@ def fix_wrong_open_subtrees(gold_transition, pred_transition, gold_sequence, gol
     if gold_transition == pred_transition:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
 
-    if isinstance(gold_sequence[gold_index+1], CloseConstituent):
+    if type(gold_sequence[gold_index+1]) is CloseConstituent:
         # if Close, the gold was a unary
         return None
     assert not isinstance(gold_sequence[gold_index+1], OpenConstituent)
@@ -53,9 +53,9 @@ def fix_wrong_open_subtrees(gold_transition, pred_transition, gold_sequence, gol
     block_end = find_in_order_constituent_end(gold_sequence, gold_index+1)
     assert block_end is not None
 
-    if more_than_two and isinstance(gold_sequence[block_end], CloseConstituent):
+    if more_than_two and type(gold_sequence[block_end]) is CloseConstituent:
         return None
-    if not more_than_two and isinstance(gold_sequence[block_end], Shift):
+    if not more_than_two and type(gold_sequence[block_end]) is Shift:
         return None
 
     return gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index+1:block_end] + [CloseConstituent(), gold_transition] + gold_sequence[block_end:]
