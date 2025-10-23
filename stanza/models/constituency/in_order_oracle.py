@@ -10,8 +10,18 @@ def fix_wrong_open_root_error(gold_transition, pred_transition, gold_sequence, g
     if gold_transition == pred_transition:
         return None
 
-    if isinstance(gold_transition, OpenConstituent) and isinstance(pred_transition, OpenConstituent) and gold_transition.top_label in root_labels:
-        return gold_sequence[:gold_index] + [pred_transition, CloseConstituent()] + gold_sequence[gold_index:]
+    if (
+        isinstance(gold_transition, OpenConstituent)
+        and isinstance(pred_transition, OpenConstituent)
+    ):
+        gold_label = gold_transition.top_label
+        if gold_label in root_labels:
+            # Avoid making a full copy always; slice and concat only when needed.
+            res = gold_sequence[:gold_index]
+            res.append(pred_transition)
+            res.append(CloseConstituent())
+            res.extend(gold_sequence[gold_index:])
+            return res
 
     return None
 
