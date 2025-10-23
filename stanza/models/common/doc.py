@@ -1343,7 +1343,15 @@ class Token(StanzaObject):
 
     def pretty_print(self):
         """ Print this token with its extended words in one line. """
-        return f"<{self.__class__.__name__} id={'-'.join([str(x) for x in self.id])};words=[{', '.join([word.pretty_print() for word in self.words])}]>"
+        # Optimization: iconcat for join and minimize str calls
+        id_as_str = '-'.join(map(str, self.id))
+        words = self.words
+        if words:
+            word_strs = [word.pretty_print() for word in words]
+            words_joined = ', '.join(word_strs)
+        else:
+            words_joined = ''
+        return f"<{self.__class__.__name__} id={id_as_str};words=[{words_joined}]>"
 
     def _is_null(self, value):
         return (value is None) or (value == '_')
@@ -1646,8 +1654,15 @@ class Word(StanzaObject):
 
     def pretty_print(self):
         """ Print the word in one line. """
+        # OPT: Slightly optimize getattr lookup, only get each attribute once
         features = [ID, TEXT, LEMMA, UPOS, XPOS, FEATS, HEAD, DEPREL]
-        feature_str = ";".join(["{}={}".format(k, getattr(self, k)) for k in features if getattr(self, k) is not None])
+        attrs = self.__class__
+        parts = []
+        for k in features:
+            v = getattr(self, k)
+            if v is not None:
+                parts.append(f"{k}={v}")
+        feature_str = ";".join(parts)
         return f"<{self.__class__.__name__} {feature_str}>"
 
     def _is_null(self, value):
