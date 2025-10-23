@@ -490,14 +490,16 @@ class SimpleModel(BaseModel):
         super().__init__(transition_scheme=transition_scheme, unary_limit=unary_limit, reverse_sentence=reverse_sentence, root_labels=root_labels)
 
     def initial_word_queues(self, tagged_word_lists):
+        # Predefine references for faster local access
+        reverse_sentence = self.reverse_sentence
+        append = list.append  # local ref speeds up appends in high iteration
         word_queues = []
         for tagged_words in tagged_word_lists:
-            word_queue =  [None]
-            word_queue += [tag_node for tag_node in tagged_words]
-            word_queue.append(None)
-            if self.reverse_sentence:
+            # Use tuple concatenation for more efficient list construction
+            word_queue = [None, *tagged_words, None]
+            if reverse_sentence:
                 word_queue.reverse()
-            word_queues.append(word_queue)
+            append(word_queues, word_queue)
         return word_queues
 
     def initial_transitions(self):
