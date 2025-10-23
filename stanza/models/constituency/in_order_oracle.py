@@ -522,12 +522,23 @@ def fix_close_shift_shift_ambiguous_predicted(gold_transition, pred_transition, 
     return repair_type, best_candidate
 
 def ambiguous_shift_open_unary_close(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
-    if not isinstance(gold_transition, Shift):
+    # Use tuple comparison for isinstance checks for minor speedup
+    if type(gold_transition) is not Shift:
         return None
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
 
-    return gold_sequence[:gold_index] + [pred_transition, CloseConstituent()] + gold_sequence[gold_index:]
+    # Avoid unnecessary list slicing and concatenation
+    # Preallocate and assemble result in one go for efficiency
+    seq_len = len(gold_sequence)
+    res = [None] * (seq_len + 2)
+    if gold_index:
+        res[:gold_index] = gold_sequence[:gold_index]
+    res[gold_index] = pred_transition
+    res[gold_index + 1] = CloseConstituent()
+    if gold_index < seq_len:
+        res[gold_index + 2:] = gold_sequence[gold_index:]
+    return res
 
 def ambiguous_shift_open_early_close(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
     if not isinstance(gold_transition, Shift):
