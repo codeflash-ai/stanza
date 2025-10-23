@@ -64,10 +64,11 @@ def advance_past_constituents(gold_sequence, cur_index):
     The index returned is the index of the Close which occurred after all the stuff
     """
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
+    gold_sequence_len = len(gold_sequence)
+    while cur_index < gold_sequence_len:
+        if type(gold_sequence[cur_index]) is OpenConstituent:
             count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
+        elif type(gold_sequence[cur_index]) is CloseConstituent:
             count = count - 1
             if count == -1: return cur_index
         cur_index = cur_index + 1
