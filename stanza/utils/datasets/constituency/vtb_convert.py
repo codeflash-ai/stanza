@@ -81,13 +81,8 @@ def count_paren_parity(tree):
     :param tree: tree as a string
     :return: True if closed otherwise False
     """
-    count = 0
-    for char in tree:
-        if char == '(':
-            count += 1
-        elif char == ')':
-            count -= 1
-    return count
+    # Use str.count for both '(' and ')' for faster computation
+    return tree.count('(') - tree.count(')')
 
 
 def is_valid_line(line):
