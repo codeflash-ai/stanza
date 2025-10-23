@@ -27,7 +27,7 @@ def repackage_hidden(h):
     if isinstance(h, torch.Tensor):
         return h.detach()
     else:
-        return tuple(repackage_hidden(v) for v in h)
+        return tuple(map(repackage_hidden, h))
 
 def batchify(data, bsz, device):
     # Work out how cleanly we can divide the dataset into bsz parts.
