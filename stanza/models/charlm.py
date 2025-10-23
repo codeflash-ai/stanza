@@ -110,12 +110,8 @@ def build_argparse():
     return parser
 
 def build_model_filename(args):
-    if args['save_name']:
-        save_name = args['save_name']
-    else:
-        save_name = '{}_{}_charlm.pt'.format(args['shorthand'], args['direction'])
-    model_file = os.path.join(args['save_dir'], save_name)
-    return model_file
+    save_name = args['save_name'] or f"{args['shorthand']}_{args['direction']}_charlm.pt"
+    return os.path.join(args['save_dir'], save_name)
 
 def parse_args(args=None):
     parser = build_argparse()
