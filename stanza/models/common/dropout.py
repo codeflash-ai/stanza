@@ -65,9 +65,10 @@ class SequenceUnitDropout(nn.Module):
         """ :param: x must be a LongTensor of unit indices. """
         if not self.training or self.dropprob == 0:
             return x
-        masksize = [y for y in x.size()]
-        dropmask = torch.rand(*masksize, device=x.device) < self.dropprob
-        res = x.masked_fill(dropmask, self.replacement_id)
+        # Directly use x.shape (tuple) instead of redundant [y for y in x.size()] list
+        dropmask = torch.rand(x.shape, device=x.device) < self.dropprob
+        # Use torch.where for improved performance and memory, as it avoids creating a copy if not needed
+        res = torch.where(dropmask, torch.as_tensor(self.replacement_id, dtype=x.dtype, device=x.device), x)
         return res
     
     def extra_repr(self):
