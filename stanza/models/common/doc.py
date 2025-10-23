@@ -1638,10 +1638,13 @@ class Word(StanzaObject):
     def to_dict(self, fields=DEFAULT_OUTPUT_FIELDS):
         """ Dumps the word into a dictionary.
         """
+        # Optimization: reduce repeated getattr lookups by using a single loop with caching.
+        get = getattr
         word_dict = {}
         for field in fields:
-            if getattr(self, field, None) is not None:
-                word_dict[field] = getattr(self, field)
+            value = get(self, field, None)
+            if value is not None:
+                word_dict[field] = value
         return word_dict
 
     def pretty_print(self):
