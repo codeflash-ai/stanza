@@ -83,9 +83,9 @@ def fix_wrong_open_stuff_unary(gold_transition, pred_transition, gold_sequence, 
     if gold_transition == pred_transition:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
     # TODO: Here we could advance past unary transitions while
     # watching for hitting pred_transition.  However, that is an open
@@ -93,7 +93,7 @@ def fix_wrong_open_stuff_unary(gold_transition, pred_transition, gold_sequence, 
     # the sequence, or is it better to skip them and attach the inner
     # nodes to the upper level
     stuff_start = gold_index + 1
-    if not isinstance(gold_sequence[stuff_start], Shift):
+    if type(gold_sequence[stuff_start]) is not Shift:
         return None
     stuff_end = advance_past_constituents(gold_sequence, stuff_start)
     if stuff_end is None:
@@ -101,12 +101,13 @@ def fix_wrong_open_stuff_unary(gold_transition, pred_transition, gold_sequence, 
     # at this point, stuff_end points to the Close which occurred after stuff_2
     # also, stuff_start points to the first transition which makes stuff_2, the Shift
     cur_index = stuff_end + 1
-    while isinstance(gold_sequence[cur_index], OpenConstituent):
+    gold_sequence_len = len(gold_sequence)
+    while cur_index < gold_sequence_len and type(gold_sequence[cur_index]) is OpenConstituent:
         if gold_sequence[cur_index] == pred_transition:
             return gold_sequence[:gold_index] + [pred_transition] + gold_sequence[stuff_start:stuff_end] + gold_sequence[cur_index+1:]
         # this was an OpenConstituent, but not the OpenConstituent we guessed
         # maybe there's a unary transition which lets us try again
-        if cur_index + 2 < len(gold_sequence) and isinstance(gold_sequence[cur_index + 1], CloseConstituent):
+        if cur_index + 2 < gold_sequence_len and type(gold_sequence[cur_index + 1]) is CloseConstituent:
             cur_index = cur_index + 2
         else:
             break
