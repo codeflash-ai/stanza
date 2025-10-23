@@ -28,64 +28,69 @@ from stanza.models.common.doc import *
 from stanza.utils.conll import CoNLL
 from stanza.models import _training_logging
 
+_cached_parser = None
+
 logger = logging.getLogger('stanza')
 
 def build_argparse():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='data/lemma', help='Directory for all lemma data.')
-    parser.add_argument('--train_file', type=str, default=None, help='Training input file for data loader.')
-    parser.add_argument('--eval_file', type=str, default=None, help='Evaluation input file for data loader.')
-    parser.add_argument('--output_file', type=str, default=None, help='Output CoNLL-U file.')
+    global _cached_parser
+    if _cached_parser is None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--data_dir', type=str, default='data/lemma', help='Directory for all lemma data.')
+        parser.add_argument('--train_file', type=str, default=None, help='Training input file for data loader.')
+        parser.add_argument('--eval_file', type=str, default=None, help='Evaluation input file for data loader.')
+        parser.add_argument('--output_file', type=str, default=None, help='Output CoNLL-U file.')
 
-    parser.add_argument('--mode', default='train', choices=['train', 'predict'])
-    parser.add_argument('--shorthand', type=str, help='Shorthand for the dataset to use.  lang_dataset')
+        parser.add_argument('--mode', default='train', choices=['train', 'predict'])
+        parser.add_argument('--shorthand', type=str, help='Shorthand for the dataset to use.  lang_dataset')
 
-    parser.add_argument('--no_dict', dest='ensemble_dict', action='store_false', help='Do not ensemble dictionary with seq2seq. By default use ensemble.')
-    parser.add_argument('--dict_only', action='store_true', help='Only train a dictionary-based lemmatizer.')
+        parser.add_argument('--no_dict', dest='ensemble_dict', action='store_false', help='Do not ensemble dictionary with seq2seq. By default use ensemble.')
+        parser.add_argument('--dict_only', action='store_true', help='Only train a dictionary-based lemmatizer.')
 
-    parser.add_argument('--hidden_dim', type=int, default=200)
-    parser.add_argument('--emb_dim', type=int, default=50)
-    parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--emb_dropout', type=float, default=0.5)
-    parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--max_dec_len', type=int, default=50)
-    parser.add_argument('--beam_size', type=int, default=1)
+        parser.add_argument('--hidden_dim', type=int, default=200)
+        parser.add_argument('--emb_dim', type=int, default=50)
+        parser.add_argument('--num_layers', type=int, default=1)
+        parser.add_argument('--emb_dropout', type=float, default=0.5)
+        parser.add_argument('--dropout', type=float, default=0.5)
+        parser.add_argument('--max_dec_len', type=int, default=50)
+        parser.add_argument('--beam_size', type=int, default=1)
 
-    parser.add_argument('--attn_type', default='soft', choices=['soft', 'mlp', 'linear', 'deep'], help='Attention type')
-    parser.add_argument('--pos_dim', type=int, default=50)
-    parser.add_argument('--pos_dropout', type=float, default=0.5)
-    parser.add_argument('--no_edit', dest='edit', action='store_false', help='Do not use edit classifier in lemmatization. By default use an edit classifier.')
-    parser.add_argument('--num_edit', type=int, default=len(edit.EDIT_TO_ID))
-    parser.add_argument('--alpha', type=float, default=1.0)
-    parser.add_argument('--no_pos', dest='pos', action='store_false', help='Do not use UPOS in lemmatization. By default UPOS is used.')
-    parser.add_argument('--no_copy', dest='copy', action='store_false', help='Do not use copy mechanism in lemmatization. By default copy mechanism is used to improve generalization.')
+        parser.add_argument('--attn_type', default='soft', choices=['soft', 'mlp', 'linear', 'deep'], help='Attention type')
+        parser.add_argument('--pos_dim', type=int, default=50)
+        parser.add_argument('--pos_dropout', type=float, default=0.5)
+        parser.add_argument('--no_edit', dest='edit', action='store_false', help='Do not use edit classifier in lemmatization. By default use an edit classifier.')
+        parser.add_argument('--num_edit', type=int, default=len(edit.EDIT_TO_ID))
+        parser.add_argument('--alpha', type=float, default=1.0)
+        parser.add_argument('--no_pos', dest='pos', action='store_false', help='Do not use UPOS in lemmatization. By default UPOS is used.')
+        parser.add_argument('--no_copy', dest='copy', action='store_false', help='Do not use copy mechanism in lemmatization. By default copy mechanism is used to improve generalization.')
 
-    parser.add_argument('--charlm', action='store_true', help="Turn on contextualized char embedding using pretrained character-level language model.")
-    parser.add_argument('--charlm_shorthand', type=str, default=None, help="Shorthand for character-level language model training corpus.")
-    parser.add_argument('--charlm_forward_file', type=str, default=None, help="Exact path to use for forward charlm")
-    parser.add_argument('--charlm_backward_file', type=str, default=None, help="Exact path to use for backward charlm")
+        parser.add_argument('--charlm', action='store_true', help="Turn on contextualized char embedding using pretrained character-level language model.")
+        parser.add_argument('--charlm_shorthand', type=str, default=None, help="Shorthand for character-level language model training corpus.")
+        parser.add_argument('--charlm_forward_file', type=str, default=None, help="Exact path to use for forward charlm")
+        parser.add_argument('--charlm_backward_file', type=str, default=None, help="Exact path to use for backward charlm")
 
-    parser.add_argument('--sample_train', type=float, default=1.0, help='Subsample training data.')
-    parser.add_argument('--optim', type=str, default='adam', help='sgd, adagrad, adam or adamax.')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--lr_decay', type=float, default=0.9)
-    parser.add_argument('--decay_epoch', type=int, default=30, help="Decay the lr starting from this epoch.")
-    parser.add_argument('--num_epoch', type=int, default=60)
-    parser.add_argument('--batch_size', type=int, default=50)
-    parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
-    parser.add_argument('--log_step', type=int, default=20, help='Print log every k steps.')
-    parser.add_argument('--save_dir', type=str, default='saved_models/lemma', help='Root dir for saving models.')
-    parser.add_argument('--save_name', type=str, default="{shorthand}_{embedding}_lemmatizer.pt", help="File name to save the model")
+        parser.add_argument('--sample_train', type=float, default=1.0, help='Subsample training data.')
+        parser.add_argument('--optim', type=str, default='adam', help='sgd, adagrad, adam or adamax.')
+        parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
+        parser.add_argument('--lr_decay', type=float, default=0.9)
+        parser.add_argument('--decay_epoch', type=int, default=30, help="Decay the lr starting from this epoch.")
+        parser.add_argument('--num_epoch', type=int, default=60)
+        parser.add_argument('--batch_size', type=int, default=50)
+        parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
+        parser.add_argument('--log_step', type=int, default=20, help='Print log every k steps.')
+        parser.add_argument('--save_dir', type=str, default='saved_models/lemma', help='Root dir for saving models.')
+        parser.add_argument('--save_name', type=str, default="{shorthand}_{embedding}_lemmatizer.pt", help="File name to save the model")
 
-    parser.add_argument('--caseless', default=False, action='store_true', help='Lowercase everything first before processing.  This will happen automatically if 100%% of the data is caseless')
-    parser.add_argument('--skip_blank_lemmas', default=False, action='store_true', help='Skip blank entries in the data files.  Useful for training a lemmatizer from a partially annotated dataset')
+        parser.add_argument('--caseless', default=False, action='store_true', help='Lowercase everything first before processing.  This will happen automatically if 100%% of the data is caseless')
+        parser.add_argument('--skip_blank_lemmas', default=False, action='store_true', help='Skip blank entries in the data files.  Useful for training a lemmatizer from a partially annotated dataset')
 
-    parser.add_argument('--seed', type=int, default=1234)
-    utils.add_device_args(parser)
+        parser.add_argument('--seed', type=int, default=1234)
+        utils.add_device_args(parser)
 
-    parser.add_argument('--wandb', action='store_true', help='Start a wandb session and write the results of training.  Only applies to training.  Use --wandb_name instead to specify a name')
-    parser.add_argument('--wandb_name', default=None, help='Name of a wandb session to start when training.  Will default to the dataset short name')
-    return parser
+        parser.add_argument('--wandb', action='store_true', help='Start a wandb session and write the results of training.  Only applies to training.  Use --wandb_name instead to specify a name')
+        parser.add_argument('--wandb_name', default=None, help='Name of a wandb session to start when training.  Will default to the dataset short name')
+        _cached_parser = parser
+    return _cached_parser
 
 def parse_args(args=None):
     parser = build_argparse()
