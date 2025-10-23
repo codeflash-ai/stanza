@@ -19,12 +19,25 @@ from stanza.utils.datasets.constituency.convert_it_vit import read_updated_trees
 import stanza.utils.default_paths as default_paths
 
 def label_trees(label_map, trees):
+    # Pre-bind frequently used functions and classes for faster local lookup
+    SentimentDatum_ = SentimentDatum
+    # Pre-bind leaf_labels as method for fast access in loop
     new_trees = []
+    
+    # Convert label_map to set for O(1) membership test if not a dict (preserves behavior with dict input, avoids any change)
+    label_map_contains = label_map.__contains__
+    label_map_get = label_map.__getitem__
+    
+    # Local variable assignment for the append function to minimize attribute lookup
+    nt_append = new_trees.append
+    
     for tree in trees:
-        if tree.con_id not in label_map:
-            raise ValueError("%s not labeled" % tree.con_id)
-        label = label_map[tree.con_id]
-        new_trees.append(SentimentDatum(label, tree.tree.leaf_labels(), tree.tree))
+        con_id = tree.con_id
+        if not label_map_contains(con_id):  # O(1) dict check
+            raise ValueError("%s not labeled" % con_id)
+        label = label_map_get(con_id)
+        tree_tree = tree.tree
+        nt_append(SentimentDatum_(label, tree_tree.leaf_labels(), tree_tree))
     return new_trees
 
 def read_label_map(label_filename):
