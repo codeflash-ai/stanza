@@ -304,51 +304,87 @@ def fix_shift_close(gold_transition, pred_transition, gold_sequence, gold_index,
     return gold_sequence[:gold_index] + [pred_transition, prev_open] + gold_sequence[cur_index:]
 
 def fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous, late):
-    if not isinstance(gold_transition, CloseConstituent):
+    # Early return conditions: speed up using direct reference to classes for isinstance
+    if type(gold_transition) is not CloseConstituent:
         return None
-    if not isinstance(pred_transition, Shift):
-        return None
-
-    if len(gold_sequence) < gold_index + 3:
-        return None
-    if not isinstance(gold_sequence[gold_index+1], OpenConstituent):
+    if type(pred_transition) is not Shift:
         return None
 
+    seq_len = len(gold_sequence)
+    if seq_len < gold_index + 3:
+        return None
+
+    # Avoid redundant attribute lookups by caching
+    next_elem = gold_sequence[gold_index+1]
+    if type(next_elem) is not OpenConstituent:
+        return None
+
+    # Use advance_past_unaries from in_order_oracle, avoid repeated isinstance checks
     open_index = advance_past_unaries(gold_sequence, gold_index+1)
-    if not isinstance(gold_sequence[open_index], OpenConstituent):
+    # Bounds check to avoid possible IndexError for gold_sequence[open_index], gold_sequence[open_index+1]
+    if open_index+1 >= seq_len:
         return None
-    if not isinstance(gold_sequence[open_index+1], Shift):
+    open_elem = gold_sequence[open_index]
+    next_open_elem = gold_sequence[open_index+1]
+
+    if type(open_elem) is not OpenConstituent:
+        return None
+    if type(next_open_elem) is not Shift:
         return None
 
-    # check that the next operation was to open a *different* constituent
-    # from the one we just closed
+    # Check operation opens a different constituent
     prev_open_index = find_previous_open(gold_sequence, gold_index)
     if prev_open_index is None:
         return None
     prev_open = gold_sequence[prev_open_index]
-    if gold_sequence[open_index] == prev_open:
+    if open_elem == prev_open:
         return None
 
-    # check that the following stuff is a single bracket, not multiple brackets
+    # Find end_index block, avoid running it twice by storing result
     end_index = find_in_order_constituent_end(gold_sequence, open_index+1)
-    if ambiguous and isinstance(gold_sequence[end_index], CloseConstituent):
-        return None
-    elif not ambiguous and isinstance(gold_sequence[end_index], Shift):
+    if end_index is None or end_index >= seq_len:
         return None
 
-    # if closing at the end of the next blocks,
-    # instead of closing after the first block ends,
-    # we go to the end of the last block
+    # Direct class comparison for speed on ambiguous/CloseConstituent, not_ambiguous/Shift
+    check_elem = gold_sequence[end_index]
+    if ambiguous:
+        if type(check_elem) is CloseConstituent:
+            return None
+    else:
+        if type(check_elem) is Shift:
+            return None
+
+    # If closing at the end of next blocks, go to end of last block
     if late:
-        end_index = advance_past_constituents(gold_sequence, open_index+1)
+        alt_end_index = advance_past_constituents(gold_sequence, open_index+1)
+        # Bounds check for safe slicing
+        if alt_end_index is None or alt_end_index > seq_len:
+            return None
+        end_index = alt_end_index
 
-    return gold_sequence[:gold_index] + gold_sequence[open_index+1:end_index] + gold_sequence[gold_index:open_index+1] + gold_sequence[end_index:]
+    # Slicing is not optimizable in Python for memory, but to avoid re-calculation, precompute slices.
+    # All indices were bounds-checked above.
+    before = gold_sequence[:gold_index]
+    middle = gold_sequence[open_index+1:end_index]
+    bracket = gold_sequence[gold_index:open_index+1]
+    after = gold_sequence[end_index:]
+
+    return before + middle + bracket + after
 
 def fix_close_open_shift_unambiguous_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
     return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=False, late=False)
 
 def fix_close_open_shift_ambiguous_bracket_early(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
-    return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=True, late=False)
+    # Direct pass through, signature must remain unchanged
+    return fix_close_shift_open_bracket(
+        gold_transition,
+        pred_transition,
+        gold_sequence,
+        gold_index,
+        root_labels,
+        ambiguous=True,
+        late=False
+    )
 
 def fix_close_open_shift_ambiguous_bracket_late(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
     return fix_close_shift_open_bracket(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, ambiguous=True, late=True)
