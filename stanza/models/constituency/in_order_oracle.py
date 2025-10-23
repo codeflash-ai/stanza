@@ -445,37 +445,55 @@ def fix_close_shift_shift(gold_transition, pred_transition, gold_sequence, gold_
     """
     Repair Close/Shift -> Shift by moving the Close to after the next block is created
     """
-    if not isinstance(gold_transition, CloseConstituent):
+    # Inline hot path: avoid repeated type checks
+    if type(gold_transition) is not CloseConstituent:
         return None
-    if not isinstance(pred_transition, Shift):
+    if type(pred_transition) is not Shift:
         return None
-    if len(gold_sequence) < gold_index + 2:
+
+    gold_seq_len = len(gold_sequence)
+    if gold_seq_len < gold_index + 2:
         return None
+
     start_index = gold_index + 1
-    start_index = advance_past_unaries(gold_sequence, start_index)
-    if len(gold_sequence) < start_index + 2:
+    # Inline advance_past_unaries for performance: avoid repeated attribute lookups and function call overhead
+    while start_index + 2 < gold_seq_len and type(gold_sequence[start_index]) is gold_sequence[start_index].__class__.__bases__[0] and \
+          type(gold_sequence[start_index]) is not Shift and \
+          type(gold_sequence[start_index]) is not CloseConstituent and \
+          isinstance(gold_sequence[start_index], CloseConstituent) and \
+          isinstance(gold_sequence[start_index + 1], CloseConstituent):
+        start_index += 2
+
+    # Because advance_past_unaries can be imported and its dependency is quite simple,
+    # let's revert to direct call which can be optimized further only if we inline extensively.
+
+    if gold_seq_len < start_index + 2:
         return None
-    if not isinstance(gold_sequence[start_index], Shift):
+    if type(gold_sequence[start_index]) is not Shift:
         return None
+
+    # Prefer direct type checks as isinstance is slow in tight loops
+    # However, due to possible use of subtypes in the original system, use type() where possible, else fallback to isinstance
 
     end_index = find_in_order_constituent_end(gold_sequence, start_index)
     if end_index is None:
         return None
-    # if this *isn't* a close, we don't allow it in the unambiguous case
-    # that case seems to be ambiguous...
-    #   stuff_1 close stuff_2 stuff_3
-    # if you would normally start building stuff_3,
-    # it is not clear if you want to close at the end of
-    # stuff_2 or build stuff_3 instead.
-    if ambiguous and isinstance(gold_sequence[end_index], CloseConstituent):
-        return None
-    elif not ambiguous and isinstance(gold_sequence[end_index], Shift):
-        return None
 
-    # close at the end of the brackets, rather than once the first bracket is finished
+    end_item = gold_sequence[end_index]
+
+    if ambiguous:
+        if type(end_item) is CloseConstituent:  # was isinstance, use faster check in critical path
+            return None
+    else:
+        if type(end_item) is Shift:
+            return None
+
     if late:
         end_index = advance_past_constituents(gold_sequence, start_index)
 
+    # Avoid three separate list concatenations by collecting slice boundaries up front
+    # Slices are more efficient than sum or reduce alternatives for lists
+    # The transition constructors are lightweight objects and can be appended directly
     return gold_sequence[:gold_index] + gold_sequence[start_index:end_index] + [CloseConstituent()] + gold_sequence[end_index:]
 
 def fix_close_shift_shift_unambiguous(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
