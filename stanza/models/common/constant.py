@@ -514,7 +514,19 @@ def is_right_to_left(lang):
 
     If a language is left out, please let us know!
     """
-    lcode = lang_to_langcode(lang)
+    try:
+        lcode = lang2lcode[lang]
+    except KeyError:
+        lang_lower = lang.lower()
+        try:
+            lcode = langlower2lcode[lang_lower]
+        except KeyError:
+            if lang in lcode2lang:
+                lcode = lang
+            elif lang_lower in lcode2lang:
+                lcode = lang_lower
+            else:
+                raise UnknownLanguageError("Unable to find language code for %s" % lang)
     return lcode in RIGHT_TO_LEFT
 
 def treebank_to_short_name(treebank):
