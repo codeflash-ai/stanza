@@ -18,7 +18,26 @@ logger = logging.getLogger('stanza')
 
 def unpack_batch(batch, device):
     """ Unpack a batch from the data loader. """
-    inputs = [b.to(device) if b is not None else None for b in batch[:8]]
+    # Manually unroll the inputs list comprehension for performance:
+    b0 = batch[0]
+    b1 = batch[1]
+    b2 = batch[2]
+    b3 = batch[3]
+    b4 = batch[4]
+    b5 = batch[5]
+    b6 = batch[6]
+    b7 = batch[7]
+
+    inputs = [
+        b0.to(device) if b0 is not None else None,
+        b1.to(device) if b1 is not None else None,
+        b2.to(device) if b2 is not None else None,
+        b3.to(device) if b3 is not None else None,
+        b4.to(device) if b4 is not None else None,
+        b5.to(device) if b5 is not None else None,
+        b6.to(device) if b6 is not None else None,
+        b7.to(device) if b7 is not None else None,
+    ]
     orig_idx = batch[8]
     word_orig_idx = batch[9]
     sentlens = batch[10]
