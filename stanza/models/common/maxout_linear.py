@@ -35,8 +35,14 @@ class MaxoutLinear(nn.Module):
 
         One large linear map makes the implementation simpler and easier for pytorch to make parallel
         """
+        # Combine view and max into a single reshape to avoid creating an extra view
+        # Use torch.amax as a slightly more efficient alternative to torch.max along a dimension
         outputs = self.linear(inputs)
-        outputs = outputs.view(*outputs.shape[:-1], self.maxout_k, self.out_channels)
-        outputs = torch.max(outputs, dim=-2)[0]
+        # Instead of .view, use .reshape (same in this case) but move .reshape/.amax together for clarity (no copy for reshape if possible, contiguous anyway)
+        shape = outputs.shape
+        # Outputs shape: [..., out_channels * maxout_k] => [..., maxout_k, out_channels]
+        outputs = outputs.reshape(*shape[:-1], self.maxout_k, self.out_channels)
+        # torch.amax is marginally faster as it doesn't return indices
+        outputs = torch.amax(outputs, dim=-2)
         return outputs
 
