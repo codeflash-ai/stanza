@@ -231,7 +231,8 @@ class CompositeVocab(BaseVocab):
         self._unit2id = {k: {w:i for i, w in enumerate(self._id2unit[k])} for k in self._id2unit}
 
     def lens(self):
-        return [len(self._unit2id[k]) for k in self._unit2id]
+        values = self._unit2id.values()
+        return [len(v) for v in values]
 
     def items(self, idx):
         return self._id2unit[idx]
