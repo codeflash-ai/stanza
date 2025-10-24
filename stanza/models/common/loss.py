@@ -125,10 +125,13 @@ class MaxEntropySequenceLoss(nn.Module):
         assert inputs.size(0) == targets.size(0)
         nll_loss = self.nll(inputs, targets)
         # entropy loss
-        mask = targets.eq(constant.PAD_ID).unsqueeze(1).expand_as(inputs)
-        masked_inputs = inputs.clone().masked_fill_(mask, 0.0)
-        p = torch.exp(masked_inputs)
-        ent_loss = p.mul(masked_inputs).sum() / inputs.size(0) # average over minibatch
+        mask = targets != constant.PAD_ID
+        valid_inputs = inputs[mask]
+        if valid_inputs.numel() == 0:
+            ent_loss = torch.tensor(0.0, device=inputs.device, dtype=inputs.dtype)
+        else:
+            p = torch.exp(valid_inputs)
+            ent_loss = p.mul(valid_inputs).sum() / inputs.size(0) # average over minibatch
         loss = nll_loss + self.alpha * ent_loss
         return loss
 
