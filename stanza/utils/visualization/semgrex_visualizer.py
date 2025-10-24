@@ -355,40 +355,47 @@ def adjust_dep_arrows(raw_html: str) -> str:
     HTML_ARROW_BEGINNING = '<g class="displacy-arrow">'
     HTML_ARROW_ENDING = "</g>"
     HTML_ARROW_ENDING_LEN = 6  # there are 2 newline chars after the arrow ending
+
     arrows_start_idx = find_nth(
-        haystack=raw_html, needle='<g class="displacy-arrow">', n=1
+        haystack=raw_html, needle=HTML_ARROW_BEGINNING, n=1
     )
     words_html, arrows_html = (
         raw_html[:arrows_start_idx],
         raw_html[arrows_start_idx:],
     )  # separate html for words and arrows
-    final_html = (
-        words_html  # continually concatenate to this after processing each arrow
-    )
-    arrow_number = 1  # which arrow we're currently editing (1-indexed)
-    start_idx, end_of_class_idx = (
-        find_nth(haystack=arrows_html, needle=HTML_ARROW_BEGINNING, n=arrow_number),
-        find_nth(haystack=arrows_html, needle=HTML_ARROW_ENDING, n=arrow_number),
-    )
-    while start_idx != -1:  # edit every arrow
-        arrow_section = arrows_html[
-            start_idx : end_of_class_idx + HTML_ARROW_ENDING_LEN
-        ]  # slice a single svg arrow object
-        if (
-            arrow_section[-1] == "<"
-        ):  # this is the last arrow in the HTML, don't cut the splice early
+
+    # Pre-index all arrow start and end locations in arrows_html
+    arrow_starts = []
+    arrow_ends = []
+    search_start = 0
+    arrows_html_len = len(arrows_html)
+    while True:
+        start_idx = arrows_html.find(HTML_ARROW_BEGINNING, search_start)
+        if start_idx == -1:
+            break
+        end_idx = arrows_html.find(HTML_ARROW_ENDING, start_idx)
+        if end_idx == -1:
+            break  # faulty HTML, abort further processing
+        arrow_starts.append(start_idx)
+        arrow_ends.append(end_idx)
+        search_start = end_idx + len(HTML_ARROW_ENDING)
+
+    # Collect edited HTML sections
+    html_parts = [words_html]
+    num_arrows = len(arrow_starts)
+
+    for i in range(num_arrows):
+        start_idx = arrow_starts[i]
+        end_of_class_idx = arrow_ends[i]
+        # Slice a single svg arrow object
+        arrow_section = arrows_html[start_idx : end_of_class_idx + HTML_ARROW_ENDING_LEN]
+        # If this is the last arrow in the HTML and possibly truncated at the end
+        if arrow_section and arrow_section[-1] == "<":
             arrow_section = arrows_html[start_idx:]
         edited_arrow_section = edit_dep_arrow(arrow_section)
+        html_parts.append(edited_arrow_section)
 
-        final_html = (
-            final_html + edited_arrow_section
-        )  # continually update html with new arrow html until done
-
-        # Prepare for next iteration
-        arrow_number += 1
-        start_idx = find_nth(arrows_html, '<g class="displacy-arrow">', arrow_number)
-        end_of_class_idx = find_nth(arrows_html, "</g>", arrow_number)
-    return final_html
+    return "".join(html_parts)
 
 
 def edit_dep_arrow(arrow_html: str) -> str:
@@ -413,39 +420,28 @@ def edit_dep_arrow(arrow_html: str) -> str:
     WORD_SPACING = 50  # words start at x=50 and are separated by 100s so their x values are multiples of 50
     M_OFFSET = 4  # length of 'd="M' that we search for to extract the number from d="M70, for instance
     ARROW_PIXEL_SIZE = 4
-    first_d_idx, second_d_idx = (
-        find_nth(arrow_html, 'd="M', 1),
-        find_nth(arrow_html, 'd="M', 2),
-    )  # find where d="M starts
-    first_d_cutoff, second_d_cutoff = (
-        arrow_html.find(",", first_d_idx),
-        arrow_html.find(",", second_d_idx),
-    )  # isolate the number after 'M' e.g. 'M70'
-    # gives svg x values of arrow body starting position and arrowhead position
-    arrow_position, arrowhead_position = (
-        float(arrow_html[first_d_idx + M_OFFSET : first_d_cutoff]),
-        float(arrow_html[second_d_idx + M_OFFSET : second_d_cutoff]),
-    )
-    # gives starting index of where 'fill="none"' or 'fill="currentColor"' begin, reference points to end the d= section
-    first_fill_start_idx, second_fill_start_idx = (
-        find_nth(arrow_html, "fill", n=1),
-        find_nth(arrow_html, "fill", n=3),
-    )
+    # All uses of find_nth on small substrings; this is not a runtime bottleneck
+    first_d_idx = find_nth(arrow_html, 'd="M', 1)
+    second_d_idx = find_nth(arrow_html, 'd="M', 2)
+
+    first_d_cutoff = arrow_html.find(",", first_d_idx)
+    second_d_cutoff = arrow_html.find(",", second_d_idx)
+
+    arrow_position = float(arrow_html[first_d_idx + M_OFFSET : first_d_cutoff])
+    arrowhead_position = float(arrow_html[second_d_idx + M_OFFSET : second_d_cutoff])
+
+    first_fill_start_idx = find_nth(arrow_html, "fill", n=1)
+    second_fill_start_idx = find_nth(arrow_html, "fill", n=3)
 
     # isolate the d= ... section to edit
-    first_d, second_d = (
-        arrow_html[first_d_idx:first_fill_start_idx],
-        arrow_html[second_d_idx:second_fill_start_idx],
-    )
+    first_d = arrow_html[first_d_idx:first_fill_start_idx]
+    second_d = arrow_html[second_d_idx:second_fill_start_idx]
     first_d_split, second_d_split = first_d.split(","), second_d.split(",")
 
-    if (
-        arrow_position == arrowhead_position
-    ):  # This arrow is incoming onto the word, center the arrow/head to word center
+    if arrow_position == arrowhead_position:
         corrected_arrow_pos = corrected_arrowhead_pos = round_base(
             arrow_position, base=WORD_SPACING
         )
-
         # edit first_d  -- arrow body
         second_term = first_d_split[1].split(" ")[0] + " " + str(corrected_arrow_pos)
         first_d = (
@@ -456,7 +452,6 @@ def edit_dep_arrow(arrow_html: str) -> str:
             + ","
             + ",".join(first_d_split[2:])
         )
-
         # edit second_d  -- arrowhead
         second_term = (
             second_d_split[1].split(" ")[0]
@@ -478,9 +473,8 @@ def edit_dep_arrow(arrow_html: str) -> str:
             + ","
             + ",".join(second_d_split[3:])
         )
-    else:  # This arrow is outgoing to another word, center the arrow/head to that word's center
+    else:
         corrected_arrowhead_pos = round_base(arrowhead_position, base=WORD_SPACING)
-
         # edit first_d -- arrow body
         third_term = first_d_split[2].split(" ")[0] + " " + str(corrected_arrowhead_pos)
         fourth_term = (
@@ -508,7 +502,7 @@ def edit_dep_arrow(arrow_html: str) -> str:
         )
         terms = [first_term, second_term, third_term] + second_d_split[3:]
         second_d = ",".join(terms)
-    # rebuild and return html from its individual sections
+
     return (
         arrow_html[:first_d_idx]
         + first_d
