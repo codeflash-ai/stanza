@@ -44,8 +44,9 @@ class BaseVocab:
     def load_state_dict(cls, state_dict):
         """ Returns a new Vocab instance constructed from a state dict. """
         new = cls()
+        _setattr = setattr
         for attr, value in state_dict.items():
-            setattr(new, attr, value)
+            _setattr(new, attr, value)
         return new
 
     def normalize_unit(self, unit):
