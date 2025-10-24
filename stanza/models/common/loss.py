@@ -23,17 +23,29 @@ def weighted_cross_entropy_loss(labels, log_dampened=False):
     classes have the same effective weight, or dampened reweighting
     using log() so that the biggest class has some priority
     """
+    # optimize conversion and weighting logic
     if isinstance(labels, list):
-        all_labels = np.array(labels)
-    _, weights = np.unique(labels, return_counts=True)
-    weights = weights / float(np.sum(weights))
-    weights = np.sum(weights) / weights
+        labels = np.asarray(labels)  # allocation: avoid unnecessary copy
+
+    # np.unique already returns sorted labels; use return_counts for efficiency
+    _, class_counts = np.unique(labels, return_counts=True)
+
+    total = np.sum(class_counts)
+    weights = class_counts / total
+    # This line: weights = np.sum(weights) / weights
+    # np.sum(weights) == 1, so this is equivalent to 1 / weights. Compute directly.
+    weights = 1.0 / weights
+
     if log_dampened:
+        # weights: vectorized log(1 + 1/weight) for all classes.
         weights = 1 + np.log(weights)
-    logger.debug("Reweighting cross entropy by {}".format(weights))
-    loss = nn.CrossEntropyLoss(
-        weight=torch.from_numpy(weights).type('torch.FloatTensor')
-    )
+
+    # Avoid expensive string formatting; pass as argument for deferred formatting
+    logger.debug("Reweighting cross entropy by %s", weights)
+
+    # Convert weights to FloatTensor directly, avoid type string cast for performance
+    weight_tensor = torch.tensor(weights, dtype=torch.float32)
+    loss = nn.CrossEntropyLoss(weight=weight_tensor)
     return loss
 
 class FocalLoss(nn.Module):
