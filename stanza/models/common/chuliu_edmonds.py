@@ -141,24 +141,40 @@ def process_cycle(tree, cycle, scores):
     noncycle_locs = np.where(noncycle)[0]
     #print(cycle_locs, noncycle_locs)
 
+    # Use local variables to avoid recomputation and for clarity
+    len_cycle = cycle_locs.shape[0]
+    len_noncycle = noncycle_locs.shape[0]
+
     # scores of cycle's potential heads; (c x n) - (c) + () -> (n x c) in R
-    metanode_head_scores = scores[cycle][:,noncycle] - cycle_scores[:,None] + cycle_score
+    # Avoid repeated indexing and allocate intermediate arrays only once
+    scores_cycle = scores[cycle]
+    scores_noncycle = scores[noncycle]
+
+    metanode_head_scores = scores_cycle[:,noncycle] - cycle_scores[:,None]
+    metanode_head_scores += cycle_score
     # scores of cycle's potential dependents; (n x c) in R
-    metanode_dep_scores = scores[noncycle][:,cycle]
+    metanode_dep_scores = scores_noncycle[:,cycle]
+
     # best noncycle head for each cycle dependent; (n) in c
     metanode_heads = np.argmax(metanode_head_scores, axis=0)
     # best cycle head for each noncycle dependent; (n) in c
     metanode_deps = np.argmax(metanode_dep_scores, axis=1)
 
     # scores of noncycle graph; (n x n) in R
-    subscores = scores[noncycle][:,noncycle]
+    subscores = scores_noncycle[:,noncycle]
     # pad to contracted graph; (n+1 x n+1) in R
-    subscores = np.pad(subscores, ( (0,1) , (0,1) ), 'constant')
+    # Only one pad needed, so no way to optimize furhter here, but do preallocate and assign
+    subscores_padded = np.zeros((len_noncycle+1, len_noncycle+1), dtype=scores.dtype)
+    subscores_padded[:-1,:-1] = subscores
+
     # set the contracted graph scores of cycle's potential heads; (c x n)[:, (n) in n] in R -> (n) in R
-    subscores[-1, :-1] = metanode_head_scores[metanode_heads, np.arange(len(noncycle_locs))]
+    # Use precomputed len_noncycle and np.arange only once
+    idx = np.arange(len_noncycle)
+    subscores_padded[-1, :-1] = metanode_head_scores[metanode_heads, idx]
     # set the contracted graph scores of cycle's potential dependents; (n x c)[(n) in n] in R-> (n) in R
-    subscores[:-1,-1] = metanode_dep_scores[np.arange(len(noncycle_locs)), metanode_deps]
-    return subscores, cycle_locs, noncycle_locs, metanode_heads, metanode_deps
+    subscores_padded[:-1,-1] = metanode_dep_scores[idx, metanode_deps]
+
+    return subscores_padded, cycle_locs, noncycle_locs, metanode_heads, metanode_deps
 
 
 def expand_contracted_tree(tree, contracted_tree, cycle_locs, noncycle_locs, metanode_heads, metanode_deps):
