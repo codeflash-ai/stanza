@@ -68,7 +68,10 @@ class BaseVocab:
         return self._id2unit[id]
 
     def map(self, units):
-        return [self.unit2id(x) for x in units]
+        _unit2id = self._unit2id
+        normalize_unit = self.normalize_unit
+        unk_id = _unit2id[UNK]
+        return [_unit2id.get(normalize_unit(x), unk_id) for x in units]
 
     def unmap(self, ids):
         return [self.id2unit(x) for x in ids]
