@@ -177,15 +177,22 @@ class CompositeVocab(BaseVocab):
         if len(self._id2unit) == 1 and not isinstance(id, Iterable):
             id = (id,)
         items = []
-        for v, k in zip(id, self._id2unit.keys()):
-            if v == EMPTY_ID: continue
-            if self.keyed:
-                items.append("{}={}".format(k, self._id2unit[k][v]))
-            else:
-                items.append(self._id2unit[k][v])
+        append = items.append  # minor optimization: local variable lookup is faster
+        _id2unit = self._id2unit
+        EMPTY = EMPTY_ID
+        if self.keyed:
+            for v, k in zip(id, _id2unit.keys()):
+                if v == EMPTY:
+                    continue
+                append(f"{k}={_id2unit[k][v]}")
+        else:
+            for v, k in zip(id, _id2unit.keys()):
+                if v == EMPTY:
+                    continue
+                append(_id2unit[k][v])
         if self.sep is not None:
             res = self.sep.join(items)
-            if res == "":
+            if not res:
                 res = "_"
             return res
         else:
