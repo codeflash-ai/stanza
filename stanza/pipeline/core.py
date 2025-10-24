@@ -175,25 +175,27 @@ def normalize_download_method(download_method):
 
 class Pipeline:
 
-    def __init__(self,
-                 lang='en',
-                 dir=DEFAULT_MODEL_DIR,
-                 package='default',
-                 processors={},
-                 logging_level=None,
-                 verbose=None,
-                 use_gpu=None,
-                 model_dir=None,
-                 download_method=DownloadMethod.DOWNLOAD_RESOURCES,
-                 resources_url=DEFAULT_RESOURCES_URL,
-                 resources_branch=None,
-                 resources_version=DEFAULT_RESOURCES_VERSION,
-                 resources_filepath=None,
-                 proxies=None,
-                 foundation_cache=None,
-                 device=None,
-                 allow_unknown_language=False,
-                 **kwargs):
+    def __init__(
+        self,
+        lang: str = 'en',
+        dir: str = DEFAULT_MODEL_DIR,
+        package: str = 'default',
+        processors: dict = {},
+        logging_level=None,
+        verbose=None,
+        use_gpu=None,
+        model_dir=None,
+        download_method=None,  # DownloadMethod
+        resources_url: str = DEFAULT_RESOURCES_URL,
+        resources_branch=None,
+        resources_version: str = DEFAULT_RESOURCES_VERSION,
+        resources_filepath=None,
+        proxies=None,
+        foundation_cache=None,
+        device=None,
+        allow_unknown_language: bool = False,
+        **kwargs
+    ):
         self.lang, self.dir, self.kwargs = lang, dir, kwargs
         if model_dir is not None and dir == DEFAULT_MODEL_DIR:
             self.dir = model_dir
@@ -202,22 +204,34 @@ class Pipeline:
         set_logging_level(logging_level, verbose)
 
         self.download_method = normalize_download_method(download_method)
-        if (self.download_method is DownloadMethod.DOWNLOAD_RESOURCES or
-            (self.download_method is DownloadMethod.REUSE_RESOURCES and not os.path.exists(os.path.join(self.dir, "resources.json")))):
-            logger.info("Checking for updates to resources.json in case models have been updated.  Note: this behavior can be turned off with download_method=None or download_method=DownloadMethod.REUSE_RESOURCES")
-            download_resources_json(self.dir,
-                                    resources_url=resources_url,
-                                    resources_branch=resources_branch,
-                                    resources_version=resources_version,
-                                    resources_filepath=resources_filepath,
-                                    proxies=proxies)
+        # Inline the os.path.exists check for "resources.json" to avoid repeated os.path.join/os.path.exists
+        resource_json_path = os.path.join(self.dir, "resources.json")
+        need_download = (
+            self.download_method is DownloadMethod.DOWNLOAD_RESOURCES or
+            (self.download_method is DownloadMethod.REUSE_RESOURCES and not os.path.exists(resource_json_path))
+        )
+        if need_download:
+            logger.info(
+                "Checking for updates to resources.json in case models have been updated.  "
+                "Note: this behavior can be turned off with download_method=None or download_method=DownloadMethod.REUSE_RESOURCES"
+            )
+            download_resources_json(
+                self.dir,
+                resources_url=resources_url,
+                resources_branch=resources_branch,
+                resources_version=resources_version,
+                resources_filepath=resources_filepath,
+                proxies=proxies
+            )
 
         # processors can use this to save on the effort of loading
         # large sub-models, such as pretrained embeddings, bert, etc
+        # Avoid creating two FoundationCache objects when possible
+        local_files_only = (self.download_method is DownloadMethod.NONE)
         if foundation_cache is None:
-            self.foundation_cache = FoundationCache(local_files_only=(self.download_method is DownloadMethod.NONE))
+            self.foundation_cache = FoundationCache(local_files_only=local_files_only)
         else:
-            self.foundation_cache = FoundationCache(foundation_cache, local_files_only=(self.download_method is DownloadMethod.NONE))
+            self.foundation_cache = FoundationCache(foundation_cache, local_files_only=local_files_only)
 
         # process different pipeline parameters
         lang, self.dir, package, processors = process_pipeline_parameters(lang, self.dir, package, processors)
@@ -225,50 +239,83 @@ class Pipeline:
         # Load resources.json to obtain latest packages.
         logger.debug('Loading resource file...')
         resources = load_resources_json(self.dir, resources_filepath)
-        if lang in resources:
-            if 'alias' in resources[lang]:
-                logger.info(f'"{lang}" is an alias for "{resources[lang]["alias"]}"')
-                lang = resources[lang]['alias']
-            lang_name = resources[lang]['lang_name'] if 'lang_name' in resources[lang] else ''
+        resources_lang = resources.get(lang)
+        if resources_lang is not None:
+            alias = resources_lang.get('alias')
+            if alias is not None:
+                logger.info(f'"{lang}" is an alias for "{alias}"')
+                lang = alias
+                resources_lang = resources.get(lang, {})
+            lang_name = resources_lang.get('lang_name', '')
         elif allow_unknown_language:
             logger.warning("Trying to create pipeline for unsupported language: %s", lang)
             lang_name = langcode_to_lang(lang)
         else:
-            logger.warning("Unsupported language: %s  If trying to add a new language, consider using allow_unknown_language=True", lang)
+            logger.warning(
+                "Unsupported language: %s  If trying to add a new language, consider using allow_unknown_language=True",
+                lang)
             lang_name = langcode_to_lang(lang)
 
         # Maintain load list
-        if lang in resources:
-            self.load_list = maintain_processor_list(resources, lang, package, processors, maybe_add_mwt=(not kwargs.get("tokenize_pretokenized")))
+        load_list = []
+        if resources_lang is not None:
+            self.load_list = maintain_processor_list(
+                resources, lang, package, processors, maybe_add_mwt=(not kwargs.get("tokenize_pretokenized"))
+            )
             self.load_list = add_dependencies(resources, lang, self.load_list)
             if self.download_method is not DownloadMethod.NONE:
+                in_lang = resources.get(lang, {})
                 # skip processors which aren't downloaded from our collection
-                download_list = [x for x in self.load_list if x[0] in resources.get(lang, {})]
+                download_list = [x for x in self.load_list if x[0] in in_lang]
                 # skip variants
                 download_list = filter_variants(download_list)
                 # gather up the model list...
                 download_list = flatten_processor_list(download_list)
                 # download_models will skip models we already have
-                download_models(download_list,
-                                resources=resources,
-                                lang=lang,
-                                model_dir=self.dir,
-                                resources_version=resources_version,
-                                proxies=proxies,
-                                log_info=False)
+                download_models(
+                    download_list,
+                    resources=resources,
+                    lang=lang,
+                    model_dir=self.dir,
+                    resources_version=resources_version,
+                    proxies=proxies,
+                    log_info=False
+                )
         elif allow_unknown_language:
-            self.load_list = [(proc, [ModelSpecification(processor=proc, package='default', dependencies=None)])
-                              for proc in list(processors.keys())]
+            # Use generator (not list()) for keys() to avoid constructing a list
+            self.load_list = [
+                (proc, [ModelSpecification(processor=proc, package='default', dependencies=None)])
+                for proc in processors.keys()
+            ]
         else:
             self.load_list = []
         self.load_list = self.update_kwargs(kwargs, self.load_list)
-        if len(self.load_list) == 0:
-            if lang not in resources or PACKAGES not in resources[lang]:
-                raise ValueError(f'No processors to load for language {lang}.  Language {lang} is currently unsupported')
+        load_list_len = len(self.load_list)
+        if load_list_len == 0:
+            if resources_lang is None or PACKAGES not in resources_lang:
+                raise ValueError(
+                    f'No processors to load for language {lang}.  Language {lang} is currently unsupported')
             else:
-                raise ValueError('No processors to load for language {}.  Please check if your language or package is correctly set.'.format(lang))
-        load_table = make_table(['Processor', 'Package'], [(row[0], ";".join(model_spec.package for model_spec in row[1])) for row in self.load_list])
+                raise ValueError(
+                    'No processors to load for language {}.  Please check if your language or package is correctly set.'.format(lang))
+
+        # Generate table for info log only if needed
+        load_table = make_table(
+            ['Processor', 'Package'],
+            [
+                (row[0], ";".join(model_spec.package for model_spec in row[1]))
+                for row in self.load_list
+            ]
+        )
         logger.info(f'Loading these models for language: {lang} ({lang_name}):\n{load_table}')
+
+        from stanza.pipeline.core import (DownloadMethod,
+                                          LanguageNotDownloadedError,
+                                          PipelineRequirementsException,
+                                          UnsupportedProcessorError,
+                                          build_default_config,
+                                          filter_variants, logger,
+                                          normalize_download_method)
 
         self.config = build_default_config(resources, lang, self.dir, self.load_list)
         self.config.update(kwargs)
@@ -280,34 +327,37 @@ class Pipeline:
         pipeline_level_configs = {'lang': lang, 'mode': 'predict'}
 
         if device is None:
-            if use_gpu is None or use_gpu == True:
+            if use_gpu is None or use_gpu is True:
                 device = default_device()
             else:
                 device = 'cpu'
-            if use_gpu == True and device == 'cpu':
+            if use_gpu is True and device == 'cpu':
                 logger.warning("GPU requested, but is not available!")
         self.device = device
         logger.info("Using device: {}".format(self.device))
 
         # set up processors
         pipeline_reqs_exceptions = []
-        for item in self.load_list:
-            processor_name, _ = item
+        # Use local variable for self.config for slight attribute access speedup
+        config = self.config
+        for processor_name, _ in self.load_list:
             logger.info('Loading: ' + processor_name)
-            curr_processor_config = self.filter_config(processor_name, self.config)
+            curr_processor_config = self.filter_config(processor_name, config)
             curr_processor_config.update(pipeline_level_configs)
             # TODO: this is obviously a hack
             # a better solution overall would be to make a pretagged version of the pos annotator
             # and then subsequent modules can use those tags without knowing where those tags came from
-            if "pretagged" in self.config and "pretagged" not in curr_processor_config:
-                curr_processor_config["pretagged"] = self.config["pretagged"]
+            if "pretagged" in config and "pretagged" not in curr_processor_config:
+                curr_processor_config["pretagged"] = config["pretagged"]
             logger.debug('With settings: ')
             logger.debug(curr_processor_config)
             try:
                 # try to build processor, throw an exception if there is a requirements issue
-                self.processors[processor_name] = NAME_TO_PROCESSOR_CLASS[processor_name](config=curr_processor_config,
-                                                                                          pipeline=self,
-                                                                                          device=self.device)
+                self.processors[processor_name] = NAME_TO_PROCESSOR_CLASS[processor_name](
+                    config=curr_processor_config,
+                    pipeline=self,
+                    device=self.device
+                )
             except ProcessorRequirementsException as e:
                 # if there was a requirements issue, add it to list which will be printed at end
                 pipeline_reqs_exceptions.append(e)
@@ -318,8 +368,8 @@ class Pipeline:
                 # For a FileNotFoundError, we try to guess if there's
                 # a missing model directory or file.  If so, we
                 # suggest the user try to download the models
-                if 'model_path' in curr_processor_config:
-                    model_path = curr_processor_config['model_path']
+                model_path = curr_processor_config.get('model_path')
+                if model_path is not None:
                     if e.filename == model_path or (isinstance(model_path, (tuple, list)) and e.filename in model_path):
                         model_path = e.filename
                     model_dir, model_name = os.path.split(model_path)
@@ -327,18 +377,18 @@ class Pipeline:
                     if lang_dir and not os.path.exists(lang_dir):
                         # model files for this language can't be found in the expected directory
                         raise LanguageNotDownloadedError(lang, lang_dir, model_path) from e
-                    if processor_name not in resources[lang]:
+                    # Do not redundantly get resources[lang]: we already have resources_lang
+                    if processor_name not in resources_lang or resources_lang is None:
                         # user asked for a model which doesn't exist for this language?
                         raise UnsupportedProcessorError(processor_name, lang) from e
                     if not os.path.exists(model_path):
                         model_name, _ = os.path.splitext(model_name)
                         # TODO: before recommending this, check that such a thing exists in resources.json.
-                        # currently that case is handled by ignoring the model, anyway
-                        raise FileNotFoundError('Could not find model file %s, although there are other models downloaded for language %s.  Perhaps you need to download a specific model.  Try: stanza.download(lang="%s",package=None,processors={"%s":"%s"})' % (model_path, lang, lang, processor_name, model_name)) from e
-
-                # if we couldn't find a more suitable description of the
-                # FileNotFoundError, just raise the old error
-                raise
+                        raise FileNotFoundError(
+                            'Could not find model file %s, although there are other models downloaded for language %s.  Perhaps you need to download a specific model.  Try: stanza.download(lang="%s",package=None,processors={"%s":"%s"})'
+                            % (model_path, lang, lang, processor_name, model_name)
+                        ) from e
+                raise  # if we couldn't find a more suitable description
 
         # if there are any processor exceptions, throw an exception to indicate pipeline build failure
         if pipeline_reqs_exceptions:
@@ -370,14 +420,14 @@ class Pipeline:
 
     @staticmethod
     def filter_config(prefix, config_dict):
+        # Speed up with comprehensions and avoid unnecessary splits where possible
+        # Avoid repeated config_dict.keys()
         filtered_dict = {}
-        for key in config_dict.keys():
-            pieces = key.split('_', 1)  # split tokenize_pretokenize to tokenize+pretokenize
-            if len(pieces) == 1:
-                continue
-            k, v = pieces
-            if k == prefix:
-                filtered_dict[v] = config_dict[key]
+        prefix_ = prefix + '_'
+        pre_len = len(prefix_)
+        for key in config_dict:
+            if key.startswith(prefix_):
+                filtered_dict[key[pre_len:]] = config_dict[key]
         return filtered_dict
 
     @property
