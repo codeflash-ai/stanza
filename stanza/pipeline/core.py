@@ -96,6 +96,16 @@ def build_default_config_option(model_specs):
     Refactored from build_default_config so that we can reuse it when
     downloading all models
     """
+    # Fast path for single element (most common case)
+    if len(model_specs) == 1:
+        model_spec = model_specs[0]
+        variants = PROCESSOR_VARIANTS.get(model_spec.processor)
+        if variants and model_spec.package in variants:
+            return f"{model_spec.processor}_with_{model_spec.package}", True
+        if model_spec.processor == LEMMA and model_spec.package == 'identity':
+            return f"{LEMMA}_use_identity", True
+        return None
+    
     # handle case when processor variants are used
     if any(model_spec.package in PROCESSOR_VARIANTS[model_spec.processor] for model_spec in model_specs):
         if len(model_specs) > 1:
