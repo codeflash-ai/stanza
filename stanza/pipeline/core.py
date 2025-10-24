@@ -167,8 +167,18 @@ def normalize_download_method(download_method):
     if download_method is None:
         return DownloadMethod.NONE
     elif isinstance(download_method, str):
+        # Cache the lookup dictionary for enum mapping and upper() calls
         try:
-            return DownloadMethod[download_method.upper()]
+            # Assume DownloadMethod is an Enum with uppercase names; cache the mapping for reuse
+            download_method_upper = download_method.upper()
+            enum_map = normalize_download_method._enum_map
+        except AttributeError:
+            # Lazy initialization and binding of enum_map to function for future calls
+            enum_map = {name: member for name, member in DownloadMethod.__members__.items()}
+            normalize_download_method._enum_map = enum_map
+            download_method_upper = download_method.upper()
+        try:
+            return enum_map[download_method_upper]
         except KeyError as e:
             raise ValueError("Unknown download method %s" % download_method) from e
     return download_method
