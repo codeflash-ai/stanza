@@ -17,6 +17,8 @@ from typing import List, Tuple, Any
 
 from stanza.utils.visualization.utils import find_nth, round_base
 
+_nlp_blank_en = spacy.blank("en")
+
 
 def get_sentences_html(doc: Any, language: str, visualize_xpos: bool = False) -> List[str]:
     """
@@ -32,16 +34,18 @@ def get_sentences_html(doc: Any, language: str, visualize_xpos: bool = False) ->
     """
     USE_FINE_GRAINED = False if not visualize_xpos else True
     html_strings, sentences_to_visualize = [], []
-    nlp = spacy.blank(
-        "en"
-    )  # blank model - we don't use any of the model features, just the visualization
+    nlp = _nlp_blank_en  # Use cached blank model
+
+    is_rtl = is_right_to_left(language)
+
     for sentence in doc.sentences:
         words, lemmas, heads, deps, tags = [], [], [], [], []
-        if is_right_to_left(
-            language
-        ):  # order of words displayed is reversed, dependency arcs remain intact
-            sentence_len = len(sentence.words)
-            for word in reversed(sentence.words):
+        sentence_words = sentence.words
+        sentence_len = len(sentence_words)
+
+        if is_rtl:  # order of words displayed is reversed, dependency arcs remain intact
+            # reversed_words = list(reversed(sentence_words))
+            for word in reversed(sentence_words):
                 words.append(word.text)
                 lemmas.append(word.lemma)
                 deps.append(word.deprel)
@@ -54,7 +58,7 @@ def get_sentences_html(doc: Any, language: str, visualize_xpos: bool = False) ->
                 else:
                     heads.append(sentence_len - word.head)
         else:  # left to right rendering
-            for word in sentence.words:
+            for word in sentence_words:
                 words.append(word.text)
                 lemmas.append(word.lemma)
                 deps.append(word.deprel)
