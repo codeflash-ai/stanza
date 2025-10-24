@@ -541,7 +541,7 @@ def edit_html_overflow(html_string: str) -> str:
     """
 
     BUFFER_LEN = 14  # length of 'direction: ltr"'
-    editing_start_idx = find_nth(html_string, "direction: ltr", n=1)
+    editing_start_idx = html_string.find("direction: ltr")
     SVG_HEADER_ADDITION = "overflow: visible; display: block"
     return (
         html_string[:editing_start_idx]
