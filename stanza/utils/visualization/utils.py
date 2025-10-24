@@ -2,11 +2,14 @@ def find_nth(haystack, needle, n):
     """
     Returns the starting index of the nth occurrence of the substring 'needle' in the string 'haystack'.
     """
-    start = haystack.find(needle)
-    while start >= 0 and n > 1:
-        start = haystack.find(needle, start + len(needle))
-        n -= 1
-    return start
+    pos = -1
+    start = 0
+    for _ in range(n):
+        pos = haystack.find(needle, start)
+        if pos == -1:
+            return -1
+        start = pos + len(needle)
+    return pos
 
 
 def round_base(num, base=10):
