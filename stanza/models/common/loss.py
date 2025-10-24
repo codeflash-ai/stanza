@@ -74,8 +74,17 @@ class FocalLoss(nn.Module):
         raw_loss = self.ce_loss(inputs, targets)
         assert len(raw_loss.shape) == 1 and raw_loss.shape[0] == inputs.shape[0]
 
-        # https://www.tutorialexample.com/implement-focal-loss-for-multi-label-classification-in-pytorch-pytorch-tutorial/
-        final_loss = raw_loss * ((1 - torch.exp(-raw_loss)) ** self.gamma)
+        # Optimize focal loss computation by precomputing exp(-raw_loss)
+        exp_neg_raw_loss = torch.exp(-raw_loss)
+        if self.gamma == 2.0:
+            # Common case: gamma=2.0 allows for faster multiplication instead of pow
+            factor = (1 - exp_neg_raw_loss)
+            final_loss = raw_loss * (factor * factor)
+        elif self.gamma == 1.0:
+            final_loss = raw_loss * (1 - exp_neg_raw_loss)
+        else:
+            final_loss = raw_loss * ((1 - exp_neg_raw_loss) ** self.gamma)
+
         assert len(final_loss.shape) == 1 and final_loss.shape[0] == inputs.shape[0]
         if self.reduction == 'sum':
             return final_loss.sum()
