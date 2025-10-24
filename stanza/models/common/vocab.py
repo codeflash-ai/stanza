@@ -148,7 +148,7 @@ class CompositeVocab(BaseVocab):
     def unit2parts(self, unit):
         # unpack parts of a unit
         if not self.sep:
-            parts = [x for x in unit]
+            parts = list(unit)
         else:
             parts = unit.split(self.sep)
         if self.keyed:
