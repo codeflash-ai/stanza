@@ -96,16 +96,41 @@ def build_default_config_option(model_specs):
     Refactored from build_default_config so that we can reuse it when
     downloading all models
     """
-    # handle case when processor variants are used
-    if any(model_spec.package in PROCESSOR_VARIANTS[model_spec.processor] for model_spec in model_specs):
-        if len(model_specs) > 1:
-            raise IllegalPackageError("Variant processor selected for {}, but multiple packages requested".format(model_spec.processor))
-        return f"{model_specs[0].processor}_with_{model_specs[0].package}", True
-    # handle case when identity is specified as lemmatizer
-    elif any(model_spec.processor == LEMMA and model_spec.package == 'identity' for model_spec in model_specs):
-        if len(model_specs) > 1:
-            raise IllegalPackageError("Identity processor selected for lemma, but multiple packages requested")
-        return f"{LEMMA}_use_identity", True
+    # Precompute length for efficiency
+    specs_len = len(model_specs)
+    if specs_len == 0:
+        return None  # Early return for empty input
+
+    # -- Fast path for processor variants --
+    first_spec = model_specs[0]
+    processor = first_spec.processor
+    variants = PROCESSOR_VARIANTS.get(processor)
+    # We use a set for faster membership test if variants exist and multiple model_specs
+    if variants:
+        if specs_len == 1:
+            if first_spec.package in variants:
+                return f"{processor}_with_{first_spec.package}", True
+        else:
+            # Only check if more than one model_spec; if any is a variant, error
+            for model_spec in model_specs:
+                if model_spec.package in PROCESSOR_VARIANTS[model_spec.processor]:
+                    raise IllegalPackageError(
+                        "Variant processor selected for {}, but multiple packages requested".format(model_spec.processor)
+                    )
+
+    # -- Fast path for lemma=identity --
+    if specs_len == 1:
+        ms = first_spec
+        if ms.processor == LEMMA and ms.package == 'identity':
+            return f"{LEMMA}_use_identity", True
+    else:
+        # Only check if more than one model_spec; if any is lemma=identity, error
+        for model_spec in model_specs:
+            if model_spec.processor == LEMMA and model_spec.package == 'identity':
+                raise IllegalPackageError(
+                    "Identity processor selected for lemma, but multiple packages requested"
+                )
+
     return None
 
 def filter_variants(model_specs):
