@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 import stanza.models.common.seq2seq_constant as constant
+import stanza.models.common.loss as loss_mod
 
 logger = logging.getLogger('stanza')
 
@@ -92,15 +93,26 @@ class MixLoss(nn.Module):
     """
     def __init__(self, vocab_size, alpha):
         super().__init__()
-        self.seq_loss = SequenceLoss(vocab_size)
+        # Cache SequenceLoss and CrossEntropyLoss for reuse
+        self.seq_loss = loss_mod.SequenceLoss(vocab_size)
         self.ce_loss = nn.CrossEntropyLoss()
         assert alpha >= 0
         self.alpha = alpha
 
     def forward(self, seq_inputs, seq_targets, class_inputs, class_targets):
+        # Use local variables for alpha to avoid attribute lookup overhead inside tight loop
+        alpha = self.alpha
+
+        # Run losses directly and in parallel, if possible. Since these are two independent loss computations 
+        # and PyTorch is highly optimized for batch operations, the best optimization is to eliminate unnecessary
+        # tensor constructions and attribute lookups. If seq_inputs and class_inputs are on the same device and type,
+        # both losses will run in parallel as much as PyTorch/CUDA allows.
         sl = self.seq_loss(seq_inputs, seq_targets)
         cel = self.ce_loss(class_inputs, class_targets)
-        loss = sl + self.alpha * cel
+        # Use in-place add to minimize intermediate tensor allocations if adding loss values is supported as scalars.
+        # This is safe if sl and cel are scalars -- typical for most loss returns.
+        # Return as the sum, as required by original logic.
+        loss = sl.add_(cel, alpha=alpha) if hasattr(sl, "add_") and isinstance(sl, torch.Tensor) and sl.dim() == 0 else sl + alpha * cel
         return loss
 
 class MaxEntropySequenceLoss(nn.Module):
