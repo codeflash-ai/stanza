@@ -169,29 +169,37 @@ def expand_contracted_tree(tree, contracted_tree, cycle_locs, noncycle_locs, met
     # head of the cycle; () in n
     #print(contracted_tree)
     cycle_head = contracted_tree[-1]
-    # fixed tree: (n) in n+1
     contracted_tree = contracted_tree[:-1]
     # initialize new tree; (t) in 0
-    new_tree = -np.ones_like(tree)
+    # np.full_like is typically faster than -np.ones_like, as it's not doing unnecessary math.
+    new_tree = np.full(tree.shape, -1, dtype=tree.dtype)
     #print(0, new_tree)
+
     # fixed tree with no heads coming from the cycle: (n) in [0,1]
     contracted_subtree = contracted_tree < len(contracted_tree)
     # add the nodes to the new tree (t)[(n)[(n) in [0,1]] in t] in t = (n)[(n)[(n) in [0,1]] in n] in t
-    new_tree[noncycle_locs[contracted_subtree]] = noncycle_locs[contracted_tree[contracted_subtree]]
+    idx_nc = noncycle_locs[contracted_subtree]
+    src_nc = noncycle_locs[contracted_tree[contracted_subtree]]
+    new_tree[idx_nc] = src_nc
     #print(1, new_tree)
+
     # fixed tree with heads coming from the cycle: (n) in [0,1]
-    contracted_subtree = np.logical_not(contracted_subtree)
-    # add the nodes to the tree (t)[(n)[(n) in [0,1]] in t] in t = (c)[(n)[(n) in [0,1]] in c] in t
-    new_tree[noncycle_locs[contracted_subtree]] = cycle_locs[metanode_deps[contracted_subtree]]
+    contracted_subtree_inv = np.logical_not(contracted_subtree)
+    idx_c = noncycle_locs[contracted_subtree_inv]
+    src_c = cycle_locs[metanode_deps[contracted_subtree_inv]]
+    new_tree[idx_c] = src_c
     #print(2, new_tree)
+
     # add the old cycle to the tree; (t)[(c) in t] in t = (t)[(c) in t] in t
     new_tree[cycle_locs] = tree[cycle_locs]
     #print(3, new_tree)
+
     # root of the cycle; (n)[() in n] in c = () in c
     cycle_root = metanode_heads[cycle_head]
     # add the root of the cycle to the new tree; (t)[(c)[() in c] in t] = (c)[() in c]
     new_tree[cycle_locs[cycle_root]] = noncycle_locs[cycle_head]
     #print(4, new_tree)
+
     return new_tree
 
 def prepare_scores(scores):
