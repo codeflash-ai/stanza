@@ -171,14 +171,14 @@ class DataLoader:
             chars_forward_sent, chars_backward_sent, charoffsets_forward_sent, charoffsets_backward_sent = [start_id], [start_id], [], []
             # forward lm
             for word in sent:
-                chars_forward_sent += word
-                charoffsets_forward_sent = charoffsets_forward_sent + [len(chars_forward_sent)] # add each token offset in the last for forward lm
-                chars_forward_sent += [end_id]
+                chars_forward_sent.extend(word)
+                charoffsets_forward_sent.append(len(chars_forward_sent)) # add each token offset in the last for forward lm
+                chars_forward_sent.append(end_id)
             # backward lm
             for word in sent[::-1]:
-                chars_backward_sent += word[::-1]
-                charoffsets_backward_sent = [len(chars_backward_sent)] + charoffsets_backward_sent # add each offset in the first for backward lm
-                chars_backward_sent += [end_id]
+                chars_backward_sent.extend(word[::-1])
+                charoffsets_backward_sent.insert(0, len(chars_backward_sent)) # add each offset in the first for backward lm
+                chars_backward_sent.append(end_id)
             # store each sentence
             chars_forward.append(chars_forward_sent)
             chars_backward.append(chars_backward_sent)
