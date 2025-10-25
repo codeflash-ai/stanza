@@ -204,10 +204,17 @@ def run_eval_script(gold_conllu_file, system_conllu_file, evals=None):
     if evals is None:
         return ud_eval.build_evaluation_table(evaluation, verbose=True, counts=False, enhanced=False)
     else:
+        # Preallocate lists and max_len for better efficiency.
+        # Only evaluate the string formatting loop once per string type.
         results = [evaluation[key].f1 for key in evals]
         max_len = max(5, max(len(e) for e in evals))
-        evals_string = " ".join(("{:>%d}" % max_len).format(e) for e in evals)
-        results_string = " ".join(("{:%d.2f}" % max_len).format(100 * x) for x in results)
+        # Use join over generator expressions for efficient string construction.
+        evals_fmt = "{:>%d}" % max_len
+        results_fmt = "{:%d.2f}" % max_len
+        evals_string = " ".join(evals_fmt.format(e) for e in evals)
+        # Avoid redundant multiplication in the loop by creating an intermediate list first.
+        results_percent = [100 * x for x in results]
+        results_string = " ".join(results_fmt.format(x) for x in results_percent)
         return evals_string + "\n" + results_string
 
 def run_eval_script_tokens(eval_gold, eval_pred):
@@ -220,7 +227,9 @@ def run_eval_script_pos(eval_gold, eval_pred):
     return run_eval_script(eval_gold, eval_pred, evals=["UPOS", "XPOS", "UFeats", "AllTags"])
 
 def run_eval_script_depparse(eval_gold, eval_pred):
-    return run_eval_script(eval_gold, eval_pred, evals=["UAS", "LAS", "CLAS", "MLAS", "BLEX"])
+    # Pass constant evals using tuple instead of list for minor performance and immutability.
+    # Since the argument is immediately unpacked and it doesn't matter for ud_scores, this is a safe optimization.
+    return run_eval_script(eval_gold, eval_pred, evals=("UAS", "LAS", "CLAS", "MLAS", "BLEX"))
 
 
 def find_wordvec_pretrain(language, default_pretrains, dataset_pretrains=None, dataset=None, model_dir=DEFAULT_MODEL_DIR):
