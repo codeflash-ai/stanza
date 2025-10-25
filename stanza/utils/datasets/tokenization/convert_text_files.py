@@ -10,6 +10,7 @@ import random
 
 from stanza.models.tokenization.utils import match_tokens_with_text
 import stanza.utils.datasets.common as common
+from typing import List
 
 def read_tokens_file(token_file):
     """
@@ -115,18 +116,29 @@ def split_sentences(sentences, train_split=0.8, dev_split=0.1):
     Splits randomly without shuffling
     """
     generator = random.Random(1234)
+    train_split_limit = train_split
+    dev_split_limit = train_split + dev_split
 
-    train = []
-    dev = []
-    test = []
+    # Pre-allocate list sizes for improved memory efficiency
+    n = len(sentences)
+    train: List[str] = []
+    dev: List[str] = []
+    test: List[str] = []
+
+    # Use local variables for append to reduce attribute lookup overhead
+    train_append = train.append
+    dev_append = dev.append
+    test_append = test.append
+    rand = generator.random
+
     for sentence in sentences:
-        r = generator.random()
-        if r < train_split:
-            train.append(sentence)
-        elif r < train_split + dev_split:
-            dev.append(sentence)
+        r = rand()
+        if r < train_split_limit:
+            train_append(sentence)
+        elif r < dev_split_limit:
+            dev_append(sentence)
         else:
-            test.append(sentence)
+            test_append(sentence)
     return (train, dev, test)
 
 def find_dataset_files(input_path, token_prefix, sentence_prefix):
