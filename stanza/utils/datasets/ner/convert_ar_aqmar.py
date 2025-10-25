@@ -19,22 +19,26 @@ def read_sentences(infile):
     """
     sents = []
     cache = []
+    decode = bytes.decode
+    append_cache = cache.append
+    append_sents = sents.append
+
     for line in infile:
-        if isinstance(line, bytes):
-            line = line.decode()
+        # Inline decode only if needed, avoid isinstance (slow for every line)
+        if type(line) is bytes:
+            line = decode(line)
         line = line.rstrip()
-        if len(line) == 0:
-            if len(cache) > 0:
-                sents.append(cache)
+        if not line:
+            if cache:
+                append_sents(cache)
                 cache = []
+                append_cache = cache.append  # Maintain local reference for performance
             continue
         array = line.split()
         assert len(array) == 2
-        w, t = array
-        cache.append([w, t])
-    if len(cache) > 0:
-        sents.append(cache)
-        cache = []
+        append_cache(array)
+    if cache:
+        append_sents(cache)
     return sents
 
 
