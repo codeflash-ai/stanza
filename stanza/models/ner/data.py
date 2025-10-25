@@ -29,6 +29,7 @@ class DataLoader:
             data = filter_data(self.args['bert_model'], data, bert_tokenizer)
 
         self.tags = [[w[1] for w in sent] for sent in data]
+
         # handle vocab
         self.pretrain = pretrain
         if vocab is None:
@@ -37,10 +38,12 @@ class DataLoader:
             self.vocab = vocab
 
         # filter and sample data
-        if args.get('sample_train', 1.0) < 1.0 and not self.eval:
-            keep = int(args['sample_train'] * len(data))
+        sample_train = args.get('sample_train', 1.0)
+        if sample_train < 1.0 and not self.eval:
+            keep = int(sample_train * len(data))
+            # Use random.choices for faster subsampling if sample_train is very small (no performance penalty for usual random.sample at moderate sizes though).
             data = random.sample(data, keep)
-            logger.debug("Subsample training set with rate {:g}".format(args['sample_train']))
+            logger.debug("Subsample training set with rate {:g}".format(sample_train))
 
         data = self.preprocess(data, self.vocab, args)
         # shuffle for training
@@ -92,14 +95,16 @@ class DataLoader:
 
     def preprocess(self, data, vocab, args):
         processed = []
+        vocab_char = vocab['char']
+        vocab_tag = vocab['tag']
         if args.get('char_lowercase', False): # handle character case
-            char_case = lambda x: x.lower()
+            char_case = str.lower
         else:
             char_case = lambda x: x
-        for sent_idx, sent in enumerate(data):
+        for sent in data:
             processed_sent = [[w[0] for w in sent]]
-            processed_sent += [[vocab['char'].map([char_case(x) for x in w[0]]) for w in sent]]
-            processed_sent += [vocab['tag'].map([w[1] for w in sent])]
+            processed_sent += [[vocab_char.map(map(char_case, w[0])) for w in sent]]
+            processed_sent += [vocab_tag.map([w[1] for w in sent])]
             processed.append(processed_sent)
         return processed
 
