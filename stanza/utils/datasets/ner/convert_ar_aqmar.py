@@ -43,8 +43,7 @@ def normalize_tags(sents):
     # normalize tags
     for sent in sents:
         new_sentence = []
-        for i, pair in enumerate(sent):
-            w, t = pair
+        for w, t in sent:
             if t.startswith('O'):
                 new_t = 'O'
             elif t.startswith('I-'):
@@ -66,7 +65,7 @@ def normalize_tags(sents):
             else:
                 new_t = 'O'
             # modify original tag
-            new_sentence.append((sent[i][0], new_t))
+            new_sentence.append((w, new_t))
         new_sents.append(new_sentence)
     return new_sents
 
