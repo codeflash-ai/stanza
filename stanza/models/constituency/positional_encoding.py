@@ -18,13 +18,21 @@ class SinusoidalEncoding(nn.Module):
 
     @staticmethod
     def build_position(model_dim, max_len, device=None):
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, model_dim, 2) * (-math.log(10000.0) / model_dim))
-        pe = torch.zeros(max_len, model_dim)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        if device is not None:
-            pe = pe.to(device=device)
+        # Precompute values for efficient computation
+        dtype = torch.float32
+        # If device is specified, create tensors directly on that device to avoid extra .to() call
+        factory_kwargs = {'device': device} if device is not None else {}
+        position = torch.arange(max_len, dtype=dtype, **factory_kwargs).unsqueeze(1)  # shape (max_len, 1)
+        div_term = torch.exp(
+            torch.arange(0, model_dim, 2, dtype=dtype, **factory_kwargs) * (-math.log(10000.0) / model_dim)
+        )  # shape (model_dim/2,)
+        # Compute the result directly, column-by-column, to minimize memory allocations and copies
+        # We avoid explicit zeros allocation by concatenating the two parts and slicing
+        pe = torch.empty(max_len, model_dim, dtype=dtype, **factory_kwargs)
+        # Compute sine/cosine values
+        scaled_position = position * div_term  # shape (max_len, model_dim//2)
+        pe[:, 0::2] = torch.sin(scaled_position)
+        pe[:, 1::2] = torch.cos(scaled_position)
         return pe
 
     def forward(self, x):
