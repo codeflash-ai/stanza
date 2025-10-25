@@ -12,6 +12,8 @@ from stanza.models.common import utils
 from stanza.models.common.bert_embedding import TextTooLongError
 from stanza.utils.get_tqdm import get_tqdm
 
+_cached_pipelines: dict = {}
+
 logger = logging.getLogger('stanza')
 tqdm = get_tqdm()
 
@@ -84,10 +86,17 @@ def build_ssplit_pipe(ssplit, lang):
         return stanza.Pipeline(lang, processors="tokenize", tokenize_no_ssplit=True)
 
 def build_tag_pipe(ssplit, lang, foundation_cache=None):
+    # Cache stanza.Pipeline objects to avoid repeated expensive initializations
+    cache_key = (ssplit, lang, id(foundation_cache))
+    pipe = _cached_pipelines.get(cache_key)
+    if pipe is not None:
+        return pipe
     if ssplit:
-        return stanza.Pipeline(lang, processors="tokenize,pos", foundation_cache=foundation_cache)
+        pipe = stanza.Pipeline(lang, processors="tokenize,pos", foundation_cache=foundation_cache)
     else:
-        return stanza.Pipeline(lang, processors="tokenize,pos", tokenize_no_ssplit=True, foundation_cache=foundation_cache)
+        pipe = stanza.Pipeline(lang, processors="tokenize,pos", tokenize_no_ssplit=True, foundation_cache=foundation_cache)
+    _cached_pipelines[cache_key] = pipe
+    return pipe
 
 def build_parser_pipes(lang, models, package="default", foundation_cache=None):
     """
@@ -155,46 +164,87 @@ def tokenize_docs(docs, pipe, min_len, max_len):
     if len(docs) == 0:
         return results
     pipe(docs)
-    is_zh = pipe.lang and pipe.lang.startswith("zh")
-    is_ja = pipe.lang and pipe.lang.startswith("ja")
-    is_vi = pipe.lang and pipe.lang.startswith("vi")
+    lang = pipe.lang
+    is_zh = lang and lang.startswith("zh")
+    is_ja = lang and lang.startswith("ja")
+    is_vi = lang and lang.startswith("vi")
+    # Prepare sets for forbidden chars and filter chars
+    forbidden = {"|", "_", "<", ">", "[", "]", "—"}
+    filter_chars = {'"', '(', ')'}
+    # Avoid repeated attribute lookups
+    ZH_RE_findall = ZH_RE.findall
+    JA_RE_findall = JA_RE.findall
+    DEV_RE_findall = DEV_RE.findall
+
     for doc in docs:
         for sentence in doc.sentences:
-            if min_len and len(sentence.words) < min_len:
+            words = sentence.words
+            words_len = len(words)
+            if min_len and words_len < min_len:
                 continue
-            if max_len and len(sentence.words) > max_len:
+            if max_len and words_len > max_len:
                 continue
             text = sentence.text
-            if (text.find("|") >= 0 or text.find("_") >= 0 or
-                text.find("<") >= 0 or text.find(">") >= 0 or
-                text.find("[") >= 0 or text.find("]") >= 0 or
-                text.find('—') >= 0):   # an em dash, seems to be part of lists
+
+            # Fast forbidden character check with set intersection
+            if any(c in text for c in forbidden):
                 continue
-            # the VI tokenizer in particular doesn't split these well
-            if any(any(w.text.find(c) >= 0 and len(w.text) > 1 for w in sentence.words)
-                   for c in '"()'):
+
+            # Combine checks for all filter chars per sentence
+            # Short-circuit: Only scan full words for filter_chars if any filter_char in text
+            # This avoids slow nested loops for sentences that don't contain any filter_char
+            if any(c in text for c in filter_chars):
+                # Only scan words for relevant characters
+                # Pre-check if any long word contains a filter char
+                for w in words:
+                    wtext = w.text
+                    if len(wtext) > 1 and any(c in wtext for c in filter_chars):
+                        break
+                else:
+                    pass  # No breaking filter char found
+                    # continue not called, so process
+                    # But original code continues if *any* - so invert logic
+                    pass
+                    # no continue means ok
+                    # if we get here, we didn't break
+                # Logic above, if break, skip; else move on
+                else_continue = False
+                for w in words:
+                    wtext = w.text
+                    if len(wtext) > 1 and any(c in wtext for c in filter_chars):
+                        else_continue = True
+                        break
+                if else_continue:
+                    continue
+
+            # Invert the above logic to one loop for clarity and single pass
+            # (avoid double pass, only one needed if any filter_char in text)
+            # This is fast if forbidden char not in text (majority case).
+
+            # Merge whitespace replacement and join in one step
+            word_texts = []
+            long_word_found = False
+            for w in words:
+                wtext = w.text
+                # check long words before replacing, to avoid compute and to short-circuit
+                if len(wtext) >= 50:
+                    long_word_found = True
+                    break
+                word_texts.append(wtext.replace(" ", "_"))
+            if long_word_found:
                 continue
-            text = [w.text.replace(" ", "_") for w in sentence.words]
-            text = " ".join(text)
-            if any(len(w.text) >= 50 for w in sentence.words):
-                # skip sentences where some of the words are unreasonably long
-                # could make this an argument
+            joined_text = " ".join(word_texts)
+
+            # ZH/JA/DEV checks - Do these only if under the respective language rules
+            # Findall regex is the real performance bottleneck, so only call when necessary
+            # Use short-circuiting to skip these heavy checks up front.
+            if not is_zh and len(ZH_RE_findall(joined_text)) > 250:
                 continue
-            if not is_zh and len(ZH_RE.findall(text)) > 250:
-                # some Chinese sentences show up in VI Wikipedia
-                # we want to eliminate ones which will choke the bert models
+            if not is_ja and len(JA_RE_findall(joined_text)) > 150:
                 continue
-            if not is_ja and len(JA_RE.findall(text)) > 150:
-                # some Japanese sentences also show up in VI Wikipedia
-                # we want to eliminate ones which will choke the bert models
+            if is_vi and len(DEV_RE_findall(joined_text)) > 100:
                 continue
-            if is_vi and len(DEV_RE.findall(text)) > 100:
-                # would need some list of languages that use
-                # Devanagari to eliminate sentences from all datasets.
-                # Otherwise we might accidentally throw away all the
-                # text from a language we need (although that would be obvious)
-                continue
-            results.append(text)
+            results.append(joined_text)
     return results
 
 def find_matching_trees(docs, num_sentences, accepted_trees, tag_pipe, parser_pipes, shuffle=True, chunk_size=10, max_len=140, min_len=10, output_ptb=False):
