@@ -9,6 +9,7 @@ import torch
 
 import stanza.models.common.seq2seq_constant as constant
 from stanza.models.common.doc import HEAD, ID, UPOS
+import numpy as np
 
 logger = logging.getLogger('stanza')
 
@@ -18,17 +19,15 @@ def map_to_ids(tokens, vocab):
 
 def get_long_tensor(tokens_list, batch_size, pad_id=constant.PAD_ID):
     """ Convert (list of )+ tokens to a padded LongTensor. """
-    sizes = []
-    x = tokens_list
-    while isinstance(x[0], list):
-        sizes.append(max(len(y) for y in x))
-        x = [z for y in x for z in y]
-    # TODO: pass in a device parameter and put it directly on the relevant device?
-    # that might be faster than creating it and then moving it
-    tokens = torch.LongTensor(batch_size, *sizes).fill_(pad_id)
+    sizes = _get_nested_sizes(tokens_list)
+    # Preallocate with numpy for much faster bulk assignment
+    total_shape = [batch_size] + sizes
+    tokens = np.full(total_shape, pad_id, dtype=np.int64)
     for i, s in enumerate(tokens_list):
-        tokens[i, :len(s)] = torch.LongTensor(s)
-    return tokens
+        l = len(s)
+        tokens[i, :l] = s
+    # Convert to torch tensor
+    return torch.from_numpy(tokens)
 
 def get_float_tensor(features_list, batch_size):
     if features_list is None or features_list[0] is None:
@@ -44,7 +43,7 @@ def sort_all(batch, lens):
     """ Sort all fields by descending order of lens, and return the original indices. """
     if batch == [[]]:
         return [[]], []
-    unsorted_all = [lens] + [range(len(lens))] + list(batch)
+    unsorted_all = [lens, list(range(len(lens)))] + list(batch)
     sorted_all = [list(t) for t in zip(*sorted(zip(*unsorted_all), reverse=True))]
     return sorted_all[2:], sorted_all[1]
 
@@ -153,3 +152,12 @@ def augment_punct(train_data, augment_ratio,
                 new_data.append(new_sentence)
 
     return new_data
+
+
+def _get_nested_sizes(tokens_list):
+    sizes = []
+    x = tokens_list
+    while isinstance(x[0], list):
+        sizes.append(max(len(y) for y in x))
+        x = [z for y in x for z in y]
+    return sizes
