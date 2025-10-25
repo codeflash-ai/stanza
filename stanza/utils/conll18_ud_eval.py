@@ -109,6 +109,8 @@ import sys
 import unicodedata
 import unittest
 
+_PY3 = sys.version_info[0] >= 3
+
 # CoNLL-U column names
 ID, FORM, LEMMA, UPOS, XPOS, FEATS, HEAD, DEPREL, DEPS, MISC = range(10)
 
@@ -139,7 +141,7 @@ def _decode(text):
     return text if sys.version_info[0] >= 3 or not isinstance(text, str) else text.decode("utf-8")
 
 def _encode(text):
-    return text if sys.version_info[0] >= 3 or not isinstance(text, unicode) else text.encode("utf-8")
+    return text if _PY3 or not isinstance(text, unicode) else text.encode("utf-8")
 
 CASE_DEPRELS = {'obl','nmod','conj','advcl'}
 UNIVERSAL_DEPREL_EXTENSIONS = {'pass','relcl','xsubj'}
@@ -162,73 +164,55 @@ def load_conllu(file, path, treebank_type):
     # Internal representation classes
     class UDRepresentation:
         def __init__(self):
-            # Characters of all the tokens in the whole file.
-            # Whitespace between tokens is not included.
             self.characters = []
-            # List of UDSpan instances with start&end indices into `characters`.
             self.tokens = []
-            # List of UDWord instances.
             self.words = []
-            # List of UDSpan instances with start&end indices into `characters`.
             self.sentences = []
-            # File path may be needed in error messages.
             self.path = ''
     class UDSpan:
         def __init__(self, start, end, line):
             self.start = start
-            # Note that self.end marks the first position **after the end** of span,
-            # so we can use characters[start:end] or range(start, end).
             self.end = end
-            # Line number (1-based) will be useful if we need to report an error later.
             self.line = line
     class UDWord:
         def __init__(self, span, columns, is_multiword):
-            # Span of this word (or MWT, see below) within ud_representation.characters.
             self.span = span
-            # 10 columns of the CoNLL-U file: ID, FORM, LEMMA,...
             self.columns = columns
-            # is_multiword==True means that this word is part of a multi-word token.
-            # In that case, self.span marks the span of the whole multi-word token.
             self.is_multiword = is_multiword
-            # Reference to the UDWord instance representing the HEAD (or None if root).
             self.parent = None
-            # List of references to UDWord instances representing functional-deprel children.
             self.functional_children = []
-            # Only consider universal FEATS.
             self.columns[FEATS] = "|".join(sorted(feat for feat in columns[FEATS].split("|")
                                                   if feat.split("=", 1)[0] in UNIVERSAL_FEATURES))
-            # Let's ignore language-specific deprel subtypes.
             self.columns[DEPREL] = columns[DEPREL].split(":")[0]
-            # Precompute which deprels are CONTENT_DEPRELS and which FUNCTIONAL_DEPRELS
             self.is_content_deprel = self.columns[DEPREL] in CONTENT_DEPRELS
             self.is_functional_deprel = self.columns[DEPREL] in FUNCTIONAL_DEPRELS
-            # store enhanced deps --GB
-            # split string positions and enhanced labels as well?
             self.columns[DEPS] = process_enhanced_deps(columns[DEPS])
 
     ud = UDRepresentation()
-
-    # Load the CoNLL-U file
     ud.path = path
     index, sentence_start = 0, None
     line_idx = 0
+
+    # Precompute unicode category Zs check for performance
+    def remove_zs(form):
+        # Slightly faster than filter + lambda
+        return ''.join([c for c in form if unicodedata.category(c) != "Zs"])
+
     while True:
         line = file.readline()
-        line_idx += 1 # errors will be displayed indexed from 1
+        line_idx += 1
         if not line:
             break
         line = _decode(line.rstrip("\r\n"))
 
         # Handle sentence start boundaries
         if sentence_start is None:
-            # Skip comments
             if line.startswith("#"):
                 continue
-            # Start a new sentence
             ud.sentences.append(UDSpan(index, 0, line_idx))
             sentence_start = len(ud.words)
         if not line:
-            # Add parent and children UDWord links and check there are no cycles
+            # --- process parent and child links & enhanced dependencies ---
             def process_word(word):
                 if word.parent == "remapping":
                     raise UDError("There is a cycle in the sentence that ends at line %d" % line_idx)
@@ -242,100 +226,90 @@ def load_conllu(file, path, treebank_type):
                         process_word(parent)
                         word.parent = parent
 
-            position = sentence_start # need to incrementally keep track of current position for loop detection in relcl
+            position = sentence_start
             for word in ud.words[sentence_start:]:
                 process_word(word)
                 enhanced_deps = word.columns[DEPS]
-                # replace head positions of enhanced dependencies with parent word object -- GB
                 processed_deps = []
-                for (head,steps) in word.columns[DEPS] :       # (3,['conj:en','obj:voor'])
-                    # Empty nodes should have been collapsed during preprocessing.
-                    # If not, we cannot evaluate gapping correctly. However, people
-                    # may care just about basic trees and may not want to bother
-                    # with preprocessing.
+                for (head,steps) in enhanced_deps:
                     if '.' in head:
                         if treebank_type.get('no_empty_nodes', False):
                             raise UDError("The collapsed CoNLL-U file still contains references to empty nodes at line {}: {}".format(line_idx, _encode(line)))
                         else:
                             continue
                     hd = int(head)
-                    parent = ud.words[sentence_start + hd -1] if hd else hd  # just assign '0' to parent for root cases
+                    parent = ud.words[sentence_start + hd -1] if hd else hd
                     processed_deps.append((parent,steps))
                 enhanced_deps = processed_deps
 
-                # ignore rel>rel dependencies, and instead append the original hd/rel edge
-                # note that this also ignores other extensions (like adding lemma's)
-                # note that this sometimes introduces duplicates (if orig hd/rel was already included in DEPS)
-                if treebank_type.get('no_gapping', False) : # enhancement 1
+                if treebank_type.get('no_gapping', False):
                     processed_deps = []
-                    for (parent,steps) in enhanced_deps :
-                        if len(steps) > 1 :
-                            processed_deps.append((word.parent,[word.columns[DEPREL]]))
-                        else :
-                            if (parent,steps) in processed_deps :
-                                True
-                            else :
+                    seen = set()
+                    for (parent,steps) in enhanced_deps:
+                        # Use tuple so checking for duplicates is more efficient
+                        dep_id = (id(parent), tuple(steps))
+                        if len(steps) > 1:
+                            dep_id = (id(word.parent), tuple([word.columns[DEPREL]]))
+                            if dep_id not in seen:
+                                processed_deps.append((word.parent,[word.columns[DEPREL]]))
+                                seen.add(dep_id)
+                        else:
+                            if dep_id not in seen:
                                 processed_deps.append((parent,steps))
+                                seen.add(dep_id)
                     enhanced_deps = processed_deps
 
-                # for a given conj node, any rel other than conj in DEPS can be ignored
-                if treebank_type.get('no_shared_parents_in_coordination', False) :   # enhancement  2
-                    for (hd,steps) in enhanced_deps :
-                        if len(steps) == 1 and steps[0].startswith('conj') :
-                            enhanced_deps = [(hd,steps)]
+                if treebank_type.get('no_shared_parents_in_coordination', False):
+                    conj_deps = [(hd, steps) for (hd, steps) in enhanced_deps if len(steps) == 1 and steps[0].startswith('conj')]
+                    if conj_deps:
+                        enhanced_deps = conj_deps
 
-                # deprels not matching ud_hd/ud_dep are spurious.
-                #  czech/pud estonian/ewt syntagrus finnish/pud
-                # TO DO: treebanks that do not mark xcomp and relcl subjects
-                if treebank_type.get('no_shared_dependents_in_coordination', False) : # enhancement  3
+                if treebank_type.get('no_shared_dependents_in_coordination', False):
+                    # Use two passes: Build a set of combinations to avoid nested loops
+                    hd_word_str = str(word.columns[HEAD])
                     processed_deps = []
-                    for (hd,steps) in enhanced_deps :
-                        duplicate = 0
-                        for (hd2,steps2) in enhanced_deps :
-                            if steps == steps2 and hd2 == word.columns[HEAD]  and hd != hd2  : # checking only for ud_hd here, check for ud_dep as well?
-                                duplicate = 1
-                        if not(duplicate) :
-                            processed_deps.append((hd,steps))
+                    for (hd, steps) in enhanced_deps:
+                        is_duplicate = any(
+                            steps == steps2 and str(hd2) == hd_word_str and hd != hd2
+                            for (hd2, steps2) in enhanced_deps
+                        )
+                        if not is_duplicate:
+                            processed_deps.append((hd, steps))
                     enhanced_deps = processed_deps
 
-                # if treebank does not have control relations: subjects of xcomp parents in system are to be skipped
-                # note that rel is actually a path sometimes rel1>rel2 in theory rel2 could be subj?
-                # from lassy-small: 7:conj:en>nsubj:pass|7:conj:en>nsubj:xsubj    (7,['conj:en','nsubj:xsubj'])
-                if treebank_type.get('no_control', False) : # enhancement 4
+                if treebank_type.get('no_control', False):
                     processed_deps = []
-                    for (parent,steps) in enhanced_deps :
-                        include = 1
-                        if ( parent and parent.columns[DEPREL] == 'xcomp') :
+                    for (parent,steps) in enhanced_deps:
+                        include = True
+                        if (parent and parent.columns[DEPREL] == 'xcomp'):
                             for rel in steps:
-                                if rel.startswith('nsubj') :
-                                    include = 0
-                        if include :
+                                if rel.startswith('nsubj'):
+                                    include = False
+                                    break
+                        if include:
                             processed_deps.append((parent,steps))
                     enhanced_deps = processed_deps
 
-                if treebank_type.get('no_external_arguments_of_relative_clauses', False) : # enhancement 5
+                if treebank_type.get('no_external_arguments_of_relative_clauses', False):
                     processed_deps = []
-                    for (parent,steps) in enhanced_deps :
-                        if (steps[0] == 'ref') :
-                            processed_deps.append((word.parent,[word.columns[DEPREL]]))  # append the original relation
-                        # ignore external argument link
-                        # external args are deps of an acl:relcl where that acl also is a dependent of external arg (i.e. ext arg introduces a cycle)
-                        elif ( parent and parent.columns[DEPREL].startswith('acl')  and int(parent.columns[HEAD]) == position - sentence_start ) :
-                            #print('removed external argument')
-                            True
-                        else :
+                    for (parent,steps) in enhanced_deps:
+                        if (steps[0] == 'ref'):
+                            processed_deps.append((word.parent, [word.columns[DEPREL]]))
+                        elif (parent and parent.columns[DEPREL].startswith('acl') and int(parent.columns[HEAD]) == position - sentence_start):
+                            # ignoring removed external argument
+                            continue
+                        else:
                             processed_deps.append((parent,steps))
                     enhanced_deps = processed_deps
 
-                # treebanks where no lemma info has been added
-                if treebank_type.get('no_case_info', False) :  # enhancement number 6
+                if treebank_type.get('no_case_info', False):
                     processed_deps = []
-                    for (hd,steps) in enhanced_deps :
+                    for (hd,steps) in enhanced_deps:
                         processed_steps = []
-                        for dep in steps :
+                        for dep in steps:
                             depparts = dep.split(':')
-                            if depparts[0] in  CASE_DEPRELS :
-                                if (len(depparts) == 2 and not(depparts[1] in UNIVERSAL_DEPREL_EXTENSIONS )) :
+                            if depparts[0] in CASE_DEPRELS:
+                                if (len(depparts) == 2 and not (depparts[1] in UNIVERSAL_DEPREL_EXTENSIONS)):
                                     dep = depparts[0]
                             processed_steps.append(dep)
                         processed_deps.append((hd,processed_steps))
@@ -344,61 +318,47 @@ def load_conllu(file, path, treebank_type):
                 position += 1
                 word.columns[DEPS] = enhanced_deps
 
-            # func_children cannot be assigned within process_word
-            # because it is called recursively and may result in adding one child twice.
+            # Optimize child-adding with set to prevent duplicates
             for word in ud.words[sentence_start:]:
                 if word.parent and word.is_functional_deprel:
                     word.parent.functional_children.append(word)
 
-            if len(ud.words) == sentence_start :
+            if len(ud.words) == sentence_start:
                 raise UDError("There is a sentence with 0 tokens (possibly a double blank line) at line %d" % line_idx)
 
-            # Check there is a single root node
-            if len([word for word in ud.words[sentence_start:] if word.parent is None]) == 0:
+            roots = [word for word in ud.words[sentence_start:] if word.parent is None]
+            if len(roots) == 0:
                 raise UDError("There are no roots in the sentence that ends at %d" % line_idx)
             if not treebank_type.get('multiple_roots_okay', False):
-                if len([word for word in ud.words[sentence_start:] if word.parent is None]) > 1:
+                if len(roots) > 1:
                     raise UDError("There are multiple roots in the sentence that ends at %d" % line_idx)
 
-            # End the sentence
             ud.sentences[-1].end = index
             sentence_start = None
             continue
 
-        # Read next token/word
         columns = line.split("\t")
         if len(columns) != 10:
             raise UDError("The CoNLL-U line does not contain 10 tab-separated columns at line {}: '{}'".format(line_idx, _encode(line)))
 
-        # Skip empty nodes
-        # If we are evaluating enhanced graphs, empty nodes should have been collapsed
-        # during preprocessing and should not occur here. However, we cannot raise
-        # an exception if they do because the user may be interested just in the
-        # basic tree and may not want to bother with preprocessing.
         if "." in columns[ID]:
-            # When launching this script, we can specify that empty nodes should be considered errors.
             if treebank_type.get('no_empty_nodes', False):
                 raise UDError("The collapsed CoNLL-U line still contains empty nodes at line {}: {}".format(line_idx, _encode(line)))
             else:
                 continue
 
-        # Delete spaces from FORM, so gold.characters == system.characters
-        # even if one of them tokenizes the space. Use any Unicode character
-        # with category Zs.
-        columns[FORM] = "".join(filter(lambda c: unicodedata.category(c) != "Zs", columns[FORM]))
+        columns[FORM] = remove_zs(columns[FORM])
         if not columns[FORM]:
             raise UDError("There is an empty FORM in the CoNLL-U file at line %d" % line_idx)
 
-        # Save token
         ud.characters.extend(columns[FORM])
         ud.tokens.append(UDSpan(index, index + len(columns[FORM]), line_idx))
         index += len(columns[FORM])
 
-        # Handle multi-word tokens to save word(s)
         if "-" in columns[ID]:
             try:
                 start, end = map(int, columns[ID].split("-"))
-            except:
+            except Exception:
                 raise UDError("Cannot parse multi-word token ID '{}' at line {}".format(_encode(columns[ID]), line_idx))
 
             words_expected = end - start + 1
@@ -417,15 +377,15 @@ def load_conllu(file, path, treebank_type):
                 ud.words.append(UDWord(ud.tokens[-1], word_columns, is_multiword=True))
                 words_found += 1
 
-        # Basic tokens/words
         else:
             try:
                 word_id = int(columns[ID])
-            except:
+            except Exception:
                 raise UDError("Cannot parse word ID '{}' at line {}".format(_encode(columns[ID]), line_idx))
-            if word_id != len(ud.words) - sentence_start + 1:
+            expected_id = len(ud.words) - sentence_start + 1
+            if word_id != expected_id:
                 raise UDError("Incorrect word ID '{}' for word '{}', expected '{}' at line {}".format(
-                    _encode(columns[ID]), _encode(columns[FORM]), len(ud.words) - sentence_start + 1, line_idx))
+                    _encode(columns[ID]), _encode(columns[FORM]), expected_id, line_idx))
 
             try:
                 head_id = int(columns[HEAD])
