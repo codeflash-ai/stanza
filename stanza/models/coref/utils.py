@@ -26,14 +26,15 @@ def add_dummy(tensor: torch.Tensor, eps: bool = False):
     """ Prepends zeros (or a very small value if eps is True)
     to the first (not zeroth) dimension of tensor.
     """
-    kwargs = dict(device=tensor.device, dtype=tensor.dtype)
+    # Optimize by using tensor.new_zeros or tensor.new_full for better device/context handling
     shape: List[int] = list(tensor.shape)
     shape[1] = 1
     if not eps:
-        dummy = torch.zeros(shape, **kwargs)          # type: ignore
+        dummy = tensor.new_zeros(shape)  # type: ignore
     else:
-        dummy = torch.full(shape, EPSILON, **kwargs)  # type: ignore
-    return torch.cat((dummy, tensor), dim=1)
+        dummy = tensor.new_full(shape, EPSILON)  # type: ignore
+    # Optimize cat by using (dummy, tensor) with pre-allocated list, avoids tuple creation overhead
+    return torch.cat([dummy, tensor], dim=1)
 
 def sigmoid_focal_loss(
         inputs: torch.Tensor,
