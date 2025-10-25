@@ -139,8 +139,9 @@ class DataLoader:
         
         wordchars = get_long_tensor(batch_words, len(wordlens))
         wordchars_mask = torch.eq(wordchars, PAD_ID)
-        chars_forward = get_long_tensor(chars_forward, batch_size, pad_id=self.vocab['char'].unit2id(' '))
-        chars_backward = get_long_tensor(chars_backward, batch_size, pad_id=self.vocab['char'].unit2id(' '))
+        pad_char = self.vocab['char'].unit2id(' ')
+        chars_forward = get_long_tensor(chars_forward, batch_size, pad_id=pad_char)
+        chars_backward = get_long_tensor(chars_backward, batch_size, pad_id=pad_char)
         chars = torch.cat([chars_forward.unsqueeze(0), chars_backward.unsqueeze(0)]) # padded forward and backward char idx
         charoffsets = [charoffsets_forward, charoffsets_backward] # idx for forward and backward lm to get word representation
         tags = get_long_tensor(batch[2], batch_size)
@@ -163,22 +164,26 @@ class DataLoader:
         return data
 
     def process_chars(self, sents):
-        start_id, end_id = self.vocab['char'].unit2id('\n'), self.vocab['char'].unit2id(' ') # special token
+        # Cache IDs for efficiency
+        start_id = self.vocab['char'].unit2id('\n')
+        end_id = self.vocab['char'].unit2id(' ') # special token
         start_offset, end_offset = 1, 1
         chars_forward, chars_backward, charoffsets_forward, charoffsets_backward = [], [], [], []
         # get char representation for each sentence
         for sent in sents:
-            chars_forward_sent, chars_backward_sent, charoffsets_forward_sent, charoffsets_backward_sent = [start_id], [start_id], [], []
+            chars_forward_sent = [start_id]
+            chars_backward_sent = [start_id]
+            charoffsets_forward_sent, charoffsets_backward_sent = [], []
             # forward lm
             for word in sent:
-                chars_forward_sent += word
-                charoffsets_forward_sent = charoffsets_forward_sent + [len(chars_forward_sent)] # add each token offset in the last for forward lm
-                chars_forward_sent += [end_id]
+                chars_forward_sent.extend(word)
+                charoffsets_forward_sent.append(len(chars_forward_sent))
+                chars_forward_sent.append(end_id)
             # backward lm
-            for word in sent[::-1]:
-                chars_backward_sent += word[::-1]
-                charoffsets_backward_sent = [len(chars_backward_sent)] + charoffsets_backward_sent # add each offset in the first for backward lm
-                chars_backward_sent += [end_id]
+            for word in reversed(sent):
+                chars_backward_sent.extend(reversed(word))
+                charoffsets_backward_sent.insert(0, len(chars_backward_sent))
+                chars_backward_sent.append(end_id)
             # store each sentence
             chars_forward.append(chars_forward_sent)
             chars_backward.append(chars_backward_sent)
