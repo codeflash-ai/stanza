@@ -47,8 +47,8 @@ class LargeMarginInSoftmaxLoss(nn.CrossEntropyLoss):
     def forward(self, input, target):
         N = input.size(0) # number of samples
         C = input.size(1) # number of classes
-        Mask = torch.zeros_like(input, requires_grad=False)
-        Mask[range(N),target] = 1
+        Mask = torch.zeros(input.shape, dtype=input.dtype, device=input.device)
+        Mask[torch.arange(N, device=input.device), target] = 1
 
         if self.deg_logit is not None:
             input = input - self.deg_logit * Mask
