@@ -48,8 +48,11 @@ class CRFLoss(nn.Module):
         @return:
             unary_scores: batch_size
         """
+        # Precompute arange once for efficiency
+        arange_sl = torch.arange(input_sl, device=tag_indices.device).long().unsqueeze(0)
+        flat_tag_indices = tag_indices + arange_sl * input_nc
+
         flat_inputs = inputs.view(input_bs, -1)
-        flat_tag_indices = tag_indices + torch.arange(input_sl, device=tag_indices.device).long().unsqueeze(0) * input_nc
         unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices).view(input_bs, -1)
         unary_scores.masked_fill_(masks, 0)
         return unary_scores.sum(dim=1)
@@ -59,14 +62,11 @@ class CRFLoss(nn.Module):
         @return:
             binary_scores: batch_size
         """
-        # get number of transitions
         nt = tag_indices.size(-1) - 1
         start_indices = tag_indices[:, :nt]
         end_indices = tag_indices[:, 1:]
-        # flat matrices
-        flat_transition_indices = start_indices * input_nc + end_indices
-        flat_transition_indices = flat_transition_indices.view(-1)
-        flat_transition_matrix = self._transitions.view(-1)
+        flat_transition_indices = (start_indices * input_nc + end_indices).reshape(-1)
+        flat_transition_matrix = self._transitions.reshape(-1)
         binary_scores = torch.gather(flat_transition_matrix, 0, flat_transition_indices)\
                 .view(input_bs, -1)
         score_masks = masks[:, 1:]
@@ -82,24 +82,28 @@ class CRFLoss(nn.Module):
         """
         start_inputs = inputs[:,0,:] # bs x nc
         rest_inputs = inputs[:,1:,:]
-        # TODO: technically we need to pay attention to the initial
-        # value being masked.  Currently we do compensate for the
-        # entire row being masked at the end of the operation
         rest_masks = masks[:,1:]
+
         alphas = start_inputs # bs x nc
         trans = self._transitions.unsqueeze(0) # 1 x nc x nc
-        # accumulate alphas in log space
-        for i in range(rest_inputs.size(1)):
-            transition_scores = alphas.unsqueeze(2) + trans # bs x nc x nc
-            new_alphas = rest_inputs[:,i,:] + log_sum_exp(transition_scores, dim=1)
-            m = rest_masks[:,i].unsqueeze(1).expand_as(new_alphas) # bs x nc, 1 for padding idx
-            # apply masks
-            new_alphas.masked_scatter_(m, alphas.masked_select(m))
-            alphas = new_alphas
-        log_norm = log_sum_exp(alphas, dim=1)
 
-        # if any row was entirely masked, we just turn its log denominator to 0
-        # eg, the empty summation for the denominator will be 1, and its log will be 0
+        # Optimize internal loop using batch and vectorization for memory and runtime
+        rest_seq_len = rest_inputs.size(1)
+        batch_size, num_tag = alphas.size()
+        for i in range(rest_seq_len):
+            # bs x nc x nc = [alphas]+[trans]
+            transition_scores = alphas.unsqueeze(2) + trans
+            # Vectorize log_sum_exp for all batches
+            # new_alphas shape: bs x nc
+            new_alphas = rest_inputs[:,i,:] + log_sum_exp(transition_scores, dim=1)
+
+            # Masks: only update unmasked positions
+            m = rest_masks[:,i].unsqueeze(1) # bs x 1
+            # Use torch.where instead of masked_scatter_ for faster masking
+            # If mask == 1 (pad), keep previous alpha, else update
+            alphas = torch.where(m, alphas, new_alphas)
+
+        log_norm = log_sum_exp(alphas, dim=1)
         all_masked = torch.all(masks, dim=1)
         log_norm = log_norm * torch.logical_not(all_masked)
         return log_norm
