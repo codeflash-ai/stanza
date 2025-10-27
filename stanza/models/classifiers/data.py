@@ -118,15 +118,17 @@ def sort_dataset_by_len(dataset, keep_index=False):
 
     an OrderedDict is used so that the mapping is sorted from smallest to largest
     """
-    sorted_dataset = collections.OrderedDict()
-    lengths = sorted(list(set(len(x.text) for x in dataset)))
-    for l in lengths:
-        sorted_dataset[l] = []
+    group_by_len = {}
     for item_idx, item in enumerate(dataset):
+        l = len(item.text)
+        if l not in group_by_len:
+            group_by_len[l] = []
         if keep_index:
-            sorted_dataset[len(item.text)].append((item, item_idx))
+            group_by_len[l].append((item, item_idx))
         else:
-            sorted_dataset[len(item.text)].append(item)
+            group_by_len[l].append(item)
+    sorted_lengths = sorted(group_by_len.keys())
+    sorted_dataset = collections.OrderedDict((l, group_by_len[l]) for l in sorted_lengths)
     return sorted_dataset
 
 def shuffle_dataset(sorted_dataset, batch_size, batch_single_item):
