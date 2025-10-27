@@ -31,10 +31,10 @@ def fix_wrong_unary_error(gold_transition, pred_transition, gold_sequence, gold_
     return gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index+1:]
 
 def fix_spurious_unary_error(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
-    if isinstance(gold_transition, CompoundUnary):
+    if type(gold_transition) is CompoundUnary:
         return None
 
-    if not isinstance(pred_transition, CompoundUnary):
+    if not type(pred_transition) is CompoundUnary:
         return None
 
     return gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index:]
