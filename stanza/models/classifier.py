@@ -439,8 +439,14 @@ def intermediate_name(filename, epoch, dev_scoring, score):
     """
     Build an informative intermediate checkpoint name from a base name, epoch #, and accuracy
     """
-    root, ext = os.path.splitext(filename)
-    return root + ".E{epoch:04d}-{score_type}{acc:05.2f}".format(**{"epoch": epoch, "score_type": dev_scoring.value, "acc": score * 100}) + ext
+    root_end = filename.rfind('.')
+    if root_end > 0:
+        root = filename[:root_end]
+        ext = filename[root_end:]
+    else:
+        root = filename
+        ext = ''
+    return f"{root}.E{epoch:04d}-{dev_scoring.value}{score * 100:05.2f}{ext}"
 
 def log_param_sizes(model):
     logger.debug("--- Model parameter sizes ---")
