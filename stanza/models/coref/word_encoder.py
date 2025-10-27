@@ -75,22 +75,25 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
         n_subtokens = len(bert_out)
         n_words = len(word_starts)
 
-        # [n_mentions, n_subtokens]
-        # with 0 at positions belonging to the words and -inf elsewhere
-        attn_mask = torch.arange(0, n_subtokens, device=self.device).expand((n_words, n_subtokens))
-        attn_mask = ((attn_mask >= word_starts.unsqueeze(1))
-                     * (attn_mask < word_ends.unsqueeze(1)))
+        # Optimization: Use broadcasting and vectorized construction of attn_mask
+        # Instead of creating a full expanded [n_words, n_subtokens] matrix, use broadcasting with arange and unsqueeze
+        subtoken_ids = torch.arange(0, n_subtokens, device=bert_out.device)
 
-        # if first row all False, set col 0 to True
-        # otherwise, set the row to be the previous row?
-        word_lengths = torch.sum(attn_mask, dim=1)
+        # [n_words, n_subtokens] boolean mask where valid positions are True
+        attn_mask = (subtoken_ids.unsqueeze(0) >= word_starts.unsqueeze(1)) & \
+                    (subtoken_ids.unsqueeze(0) < word_ends.unsqueeze(1))
+
+        # word_lengths: number of True positions per word (length of mention)
+        word_lengths = attn_mask.sum(dim=1)
         if torch.any(word_lengths == 0):
             raise ValueError("Found a blank word in training data!  This will break everything, starting with the attention masks, as some rows of the scoring table will be set to entirely -inf and then softmax to NaN.")
 
-        attn_mask = torch.log(attn_mask.to(torch.float))
+        # Convert boolean mask directly to -inf/0 values using torch.where, instead of log/float conversion for significant speedup
+        attn_mask = torch.where(attn_mask, torch.tensor(0.0, device=bert_out.device), torch.tensor(float('-inf'), device=bert_out.device))
 
         attn_scores = self.attn(bert_out).T  # [1, n_subtokens]
-        attn_scores = attn_scores.expand((n_words, n_subtokens))
+        # Expand efficiently for broadcasting
+        attn_scores = attn_scores.expand(n_words, n_subtokens)
         attn_scores = attn_mask + attn_scores
         del attn_mask
         return torch.softmax(attn_scores, dim=1)  # [n_words, n_subtokens]
