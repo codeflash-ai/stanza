@@ -1,4 +1,10 @@
 import sys
+from IPython import get_ipython
+from tqdm import tqdm, tqdm_notebook
+
+_have_ipython = False
+
+get_ipython = None
 
 def get_tqdm():
     """
@@ -17,25 +23,20 @@ def get_tqdm():
     If there is no tty, the returned tqdm will always be disabled
     unless disable=False is specifically set.
     """
-    ipy_str = ""
-    try:
-        from IPython import get_ipython
-        ipy_str = str(type(get_ipython()))
-    except ImportError:
-        pass
 
-    if 'zmqshell' in ipy_str:
-        from tqdm import tqdm_notebook as tqdm
-        return tqdm
-    if 'terminal' in ipy_str:
-        from tqdm import tqdm
-        return tqdm
+    ipy_str = ""
+    if _have_ipython:
+        ip = get_ipython()
+        if ip is not None:
+            ipy_str = str(type(ip))
+            if 'zmqshell' in ipy_str:
+                return tqdm_notebook
+            if 'terminal' in ipy_str:
+                return tqdm
 
     if sys.stderr is not None and hasattr(sys.stderr, "isatty") and sys.stderr.isatty():
-        from tqdm import tqdm
         return tqdm
 
-    from tqdm import tqdm
     def hidden_tqdm(*args, **kwargs):
         if "disable" in kwargs:
             return tqdm(*args, **kwargs)
