@@ -46,12 +46,14 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
             cluster_ids: tensor of shape [n_words], containing cluster indices
                 for each word. Non-coreferent words have cluster id of zero.
         """
-        word_boundaries = torch.tensor(doc["word2subword"], device=self.device)
+        # Directly create tensor in correct dtype and device to avoid extra copy
+        word_boundaries = torch.as_tensor(doc["word2subword"], device=self.device, dtype=torch.long)
         starts = word_boundaries[:, 0]
         ends = word_boundaries[:, 1]
 
         # [n_mentions, features]
-        words = self._attn_scores(x, starts, ends).mm(x)
+        words_attn = self._attn_scores(x, starts, ends)
+        words = torch.matmul(words_attn, x)
 
         words = self.dropout(words)
 
@@ -72,27 +74,26 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
         Returns:
             torch.Tensor: [description]
         """
-        n_subtokens = len(bert_out)
-        n_words = len(word_starts)
+        n_subtokens = bert_out.size(0)
+        n_words = word_starts.size(0)
 
-        # [n_mentions, n_subtokens]
-        # with 0 at positions belonging to the words and -inf elsewhere
-        attn_mask = torch.arange(0, n_subtokens, device=self.device).expand((n_words, n_subtokens))
-        attn_mask = ((attn_mask >= word_starts.unsqueeze(1))
-                     * (attn_mask < word_ends.unsqueeze(1)))
+        # Efficient mask generation using broadcasting (avoids expand and mul)
+        ar = torch.arange(n_subtokens, device=self.device)
+        attn_mask = (ar.unsqueeze(0) >= word_starts.unsqueeze(1)) & (ar.unsqueeze(0) < word_ends.unsqueeze(1))
 
-        # if first row all False, set col 0 to True
-        # otherwise, set the row to be the previous row?
-        word_lengths = torch.sum(attn_mask, dim=1)
+        word_lengths = attn_mask.sum(dim=1)
         if torch.any(word_lengths == 0):
             raise ValueError("Found a blank word in training data!  This will break everything, starting with the attention masks, as some rows of the scoring table will be set to entirely -inf and then softmax to NaN.")
 
-        attn_mask = torch.log(attn_mask.to(torch.float))
+        # Only take log where mask is true, else set to -inf directly
+        attn_mask_f = torch.full_like(attn_mask, float('-inf'), dtype=torch.float)
+        attn_mask_f[attn_mask] = 0.0
 
         attn_scores = self.attn(bert_out).T  # [1, n_subtokens]
-        attn_scores = attn_scores.expand((n_words, n_subtokens))
-        attn_scores = attn_mask + attn_scores
-        del attn_mask
+        # Expand without actual new memory
+        attn_scores = attn_scores.expand(n_words, n_subtokens)
+        attn_scores = attn_mask_f + attn_scores
+
         return torch.softmax(attn_scores, dim=1)  # [n_words, n_subtokens]
 
     def _cluster_ids(self, doc: Doc) -> torch.Tensor:
@@ -104,12 +105,12 @@ class WordEncoder(torch.nn.Module):  # pylint: disable=too-many-instance-attribu
             torch.Tensor of shape [n_word], containing cluster indices for
                 each word. Non-coreferent words have cluster id of zero.
         """
-        word2cluster = {word_i: i
-                        for i, cluster in enumerate(doc["word_clusters"], start=1)
-                        for word_i in cluster}
-
-        return torch.tensor(
-            [word2cluster.get(word_i, 0)
-             for word_i in range(len(doc["cased_words"]))],
-            device=self.device
-        )
+        # Precompute lengths and avoid building intermediate dict
+        # `doc["cased_words"]` is expected to be a list or tuple, so enumerate is faster here
+        n_words = len(doc["cased_words"])
+        # Create a flat index tensor filled with zeros
+        cluster_ids = torch.zeros(n_words, dtype=torch.long, device=self.device)
+        for i, cluster in enumerate(doc["word_clusters"], start=1):
+            # cluster is list of indices for this cluster
+            cluster_ids.scatter_(0, torch.as_tensor(cluster, device=self.device, dtype=torch.long), i)
+        return cluster_ids
