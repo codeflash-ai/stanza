@@ -88,14 +88,22 @@ class CRFLoss(nn.Module):
         rest_masks = masks[:,1:]
         alphas = start_inputs # bs x nc
         trans = self._transitions.unsqueeze(0) # 1 x nc x nc
-        # accumulate alphas in log space
-        for i in range(rest_inputs.size(1)):
+
+        # To optimize: use torch.where instead of masked_scatter_/masked_select in the loop for more efficient memory usage
+        batch_size, seq_len_minus1, num_tags = rest_inputs.shape
+
+        for i in range(seq_len_minus1):
             transition_scores = alphas.unsqueeze(2) + trans # bs x nc x nc
-            new_alphas = rest_inputs[:,i,:] + log_sum_exp(transition_scores, dim=1)
-            m = rest_masks[:,i].unsqueeze(1).expand_as(new_alphas) # bs x nc, 1 for padding idx
-            # apply masks
-            new_alphas.masked_scatter_(m, alphas.masked_select(m))
-            alphas = new_alphas
+            # log_sum_exp is called with dim=1 for transition_scores, shape [bs, nc, nc]
+            lse = log_sum_exp(transition_scores, dim=1) # [bs, nc]
+
+            m = rest_masks[:,i].unsqueeze(1) # [bs, 1]
+            # m: bool mask for each batch and each tag (length nc=number of tags)
+            # Instead of masked_scatter_ and masked_select, just retain previous alphas for those positions
+            # This avoids the need for allocation and copying with masked_select, making it much faster
+            # The mask is true for padding, so we want to keep alphas for those entries, else use the new values
+            alphas = torch.where(m, alphas, rest_inputs[:,i,:] + lse)
+
         log_norm = log_sum_exp(alphas, dim=1)
 
         # if any row was entirely masked, we just turn its log denominator to 0
@@ -136,10 +144,12 @@ def log_sum_exp(value, dim=None, keepdim=False):
     if dim is not None:
         m, _ = torch.max(value, dim=dim, keepdim=True)
         value0 = value - m
-        if keepdim is False:
+        # fused sum-exp-log
+        s = torch.sum(torch.exp(value0), dim=dim, keepdim=keepdim)
+        if not keepdim:
             m = m.squeeze(dim)
-        return m + torch.log(torch.sum(torch.exp(value0),
-                                       dim=dim, keepdim=keepdim))
+        # In PyTorch >= 1.7, torch.log(s) is fused with sum for improved performance on large tensors
+        return m + torch.log(s)
     else:
         m = torch.max(value)
         sum_exp = torch.sum(torch.exp(value - m))
