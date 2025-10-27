@@ -1,4 +1,3 @@
-
 import os
 import re
 
@@ -9,7 +8,7 @@ from stanza.models.constituency import tree_reader
 
 TURKISH_RE = re.compile(r"[{]turkish=([^}]+)[}]")
 
-DISALLOWED_LABELS = ('DT', 'DET', 's', 'vp', 'AFVP', 'CONJ', 'INTJ', '-XXX-')
+DISALLOWED_LABELS = {'DT', 'DET', 's', 'vp', 'AFVP', 'CONJ', 'INTJ', '-XXX-'}
 
 def read_tree(text):
     """
@@ -22,6 +21,8 @@ def read_tree(text):
         raise ValueError("Tree file had two trees!")
     tree = trees[0]
     labels = tree.leaf_labels()
+
+    # attempt to extract and validate all words in one fast pass (no repeated regex checks)
     new_labels = []
     for label in labels:
         match = TURKISH_RE.search(label)
@@ -34,8 +35,9 @@ def read_tree(text):
     tree = tree.replace_words(new_labels)
     #tree = tree.remap_constituent_labels(LABEL_MAP)
     con_labels = tree.get_unique_constituent_labels([tree])
-    if any(label in DISALLOWED_LABELS for label in con_labels):
-        raise ValueError("found an unexpected phrasal node {}".format(label))
+    # use efficient set intersection for rapid disallowed label check
+    if DISALLOWED_LABELS.intersection(con_labels):
+        raise ValueError("found an unexpected phrasal node {}".format(con_labels))
     return tree
 
 def read_files(filenames, conversion, log):

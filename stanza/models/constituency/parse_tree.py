@@ -53,8 +53,8 @@ class Tree(StanzaObject):
         elif isinstance(children, Tree):
             self.children = (children,)
         else:
+            # Avoid unnecessary intermediate list, go straight to tuple
             self.children = tuple(children)
-
         self.label = label
 
     def is_leaf(self):
@@ -90,8 +90,8 @@ class Tree(StanzaObject):
         if self.is_leaf():
             return [self.label]
 
-        words = [x.children[0].label for x in self.yield_preterminals()]
-        return words
+        # Use generator expression directly, more efficient
+        return [x.children[0].label for x in self.yield_preterminals()]
 
     def __len__(self):
         return len(self.leaf_labels())
@@ -340,7 +340,8 @@ class Tree(StanzaObject):
         if isinstance(trees, Tree):
             trees = [trees]
         constituents = Tree.get_constituent_counts(trees)
-        return sorted(set(constituents.keys()))
+        # Counter keys are unique, so no need to wrap in set().
+        return sorted(constituents.keys())
 
     @staticmethod
     def get_constituent_counts(trees):
@@ -509,10 +510,11 @@ class Tree(StanzaObject):
                 if word is None:
                     raise ValueError("Not enough words to replace all leaves")
                 return Tree(word)
-            return Tree(subtree.label, [recursive_replace_words(x) for x in subtree.children])
+            return Tree(subtree.label, (recursive_replace_words(x) for x in subtree.children))
 
         new_tree = recursive_replace_words(self)
-        if any(True for _ in word_iterator):
+        # next() is a more efficient way to check for leftovers than `any()`
+        if next(word_iterator, None) is not None:
             raise ValueError("Too many words for the given tree")
         return new_tree
 
