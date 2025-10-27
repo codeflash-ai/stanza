@@ -398,18 +398,13 @@ def score_dataset(model, dataset, label_map=None,
                 else:
                     found = False
                     if forgive_unmapped_labels:
-                        items = []
-                        for j in range(len(output[i])):
-                            items.append((output[i][j].item(), j))
-                        items.sort(key=lambda x: -x[0])
-                        for _, item in items:
+                        # Use torch.topk for performance, descending order
+                        scores, indices = torch.topk(output[i], output[i].numel())
+                        for item in indices.tolist():
                             if item in remap_labels:
                                 predicted_label = remap_labels[item]
                                 found = True
                                 break
-                    # if slack guesses allowed, none of the existing
-                    # labels matched, so we count it wrong.  if slack
-                    # guesses not allowed, just count it wrong
                     if not found:
                         continue
 
