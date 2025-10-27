@@ -79,33 +79,53 @@ def fix_open_open_two_subtrees_error(gold_transition, pred_transition, gold_sequ
     return RepairType.OPEN_OPEN_TWO_SUBTREES_ERROR, None
 
 def fix_open_open_error(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, exactly_three):
+    # Inline the `isinstance` checks for speed and move them before `==` (checks for type before equality check is faster)
+    # Use local variables for frequently accessed items/key computations to reduce attribute lookups
+
+    if type(gold_transition) is not OpenConstituent or type(pred_transition) is not OpenConstituent:
+        return None
+
     if gold_transition == pred_transition:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
-        return None
-    if not isinstance(pred_transition, OpenConstituent):
-        return None
+    gold_seq_len = len(gold_sequence)
 
     block_end = find_in_order_constituent_end(gold_sequence, gold_index+1)
-    if not isinstance(gold_sequence[block_end], Shift):
+    # block_end can be None if find_in_order_constituent_end hits end-of-list, so check that before indexing
+    if block_end is None or type(gold_sequence[block_end]) is not Shift:
         # this is a multiple subtrees version of this error
         # we are only skipping the two subtrees errors for now
         return None
 
     next_block_end = find_in_order_constituent_end(gold_sequence, block_end+1)
-    if exactly_three and isinstance(gold_sequence[next_block_end], Shift):
+    if (
+        exactly_three
+        and next_block_end is not None
+        and type(gold_sequence[next_block_end]) is Shift
+    ):
         # for exactly three subtrees,
         # we can put back the missing open transition
         # and now we have no recall error, only precision error
         # for more than three, we separate that out as an ambiguous choice
         return None
-    elif not exactly_three and isinstance(gold_sequence[next_block_end], CloseConstituent):
+    elif (
+        not exactly_three
+        and next_block_end is not None
+        and type(gold_sequence[next_block_end]) is CloseConstituent
+    ):
         # this is ambiguous, but we can still try this fix
         return None
 
     # at this point, we build a new sequence with the origin constituent inserted
-    return gold_sequence[:gold_index] + [pred_transition] + gold_sequence[gold_index+1:block_end] + [CloseConstituent(), gold_transition] + gold_sequence[block_end:]
+    # Slicing does not copy if everything is used, so order and slices preserved
+    # Append new objects in the sequence at construction for efficiency
+    return (
+        gold_sequence[:gold_index]
+        + [pred_transition]
+        + gold_sequence[gold_index+1:block_end]
+        + [CloseConstituent(), gold_transition]
+        + gold_sequence[block_end:]
+    )
 
 
 def fix_open_open_three_subtrees_error(gold_transition, pred_transition, gold_sequence, gold_index, root_labels, model, state):
