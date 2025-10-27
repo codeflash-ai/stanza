@@ -64,13 +64,20 @@ def advance_past_constituents(gold_sequence, cur_index):
     The index returned is the index of the Close which occurred after all the stuff
     """
     count = 0
-    while cur_index < len(gold_sequence):
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-            if count == -1: return cur_index
-        cur_index = cur_index + 1
+    # Cache class reference and sequence length for faster lookup
+    oc = OpenConstituent
+    cc = CloseConstituent
+    seq = gold_sequence
+    n = len(seq)
+    while cur_index < n:
+        t = type(seq[cur_index])
+        if t is oc:
+            count += 1
+        elif t is cc:
+            count -= 1
+            if count == -1:
+                return cur_index
+        cur_index += 1
     return None
 
 def find_previous_open(gold_sequence, cur_index):
@@ -80,15 +87,19 @@ def find_previous_open(gold_sequence, cur_index):
     Return None if it can't be found.
     """
     count = 0
-    cur_index = cur_index - 1
-    while cur_index >= 0:
-        if isinstance(gold_sequence[cur_index], OpenConstituent):
-            count = count + 1
+    oc = OpenConstituent
+    cc = CloseConstituent
+    seq = gold_sequence
+    idx = cur_index - 1
+    while idx >= 0:
+        t = type(seq[idx])
+        if t is oc:
+            count += 1
             if count > 0:
-                return cur_index
-        elif isinstance(gold_sequence[cur_index], CloseConstituent):
-            count = count - 1
-        cur_index = cur_index - 1
+                return idx
+        elif t is cc:
+            count -= 1
+        idx -= 1
     return None
 
 def find_in_order_constituent_end(gold_sequence, cur_index):
