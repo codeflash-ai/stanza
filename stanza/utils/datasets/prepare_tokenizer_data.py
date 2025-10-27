@@ -6,6 +6,10 @@ import sys
 
 from collections import Counter
 
+_RE_MATCH_WHITESPACE = re.compile(r'^\s$')
+
+_RE_MATCH_MULTISPACE = re.compile(r'^\s+$')
+
 """
 Data is output in 4 files:
 
@@ -21,7 +25,9 @@ PARAGRAPH_BREAK = re.compile(r'\n\s*\n')
 
 def is_para_break(index, text):
     """ Detect if a paragraph break can be found, and return the length of the paragraph break sequence. """
+    # The most common case is quickly ruled out before regex is used
     if text[index] == '\n':
+        # Use pre-compiled regex from the stanza.utils.datasets.prepare_tokenizer_data
         para_break = PARAGRAPH_BREAK.match(text, index)
         if para_break:
             break_len = len(para_break.group(0))
@@ -34,24 +40,33 @@ def find_next_word(index, text, word, output):
     """
     idx = 0
     word_sofar = ''
-    while index < len(text) and idx < len(word):
+    text_len = len(text)
+    word_len = len(word)
+    # Minor local optimization: hoist frequently used length checks and regex objects.
+    while index < text_len and idx < word_len:
         para_break, break_len = is_para_break(index, text)
         if para_break:
             # multiple newlines found, paragraph break
             if len(word_sofar) > 0:
-                assert re.match(r'^\s+$', word_sofar), 'Found non-empty string at the end of a paragraph that doesn\'t match any token: |{}|'.format(word_sofar)
+                # Use pre-compiled regex for whitespace-only check
+                assert _RE_MATCH_MULTISPACE.match(word_sofar), \
+                    'Found non-empty string at the end of a paragraph that doesn\'t match any token: |{}|'.format(word_sofar)
                 word_sofar = ''
 
             output.write('\n\n')
             index += break_len - 1
-        elif re.match(r'^\s$', text[index]) and not re.match(r'^\s$', word[idx]):
-            # whitespace found, and whitespace is not part of a word
-            word_sofar += text[index]
         else:
-            # non-whitespace char, or a whitespace char that's part of a word
-            word_sofar += text[index]
-            assert text[index].replace('\n', ' ') == word[idx], "Character mismatch: raw text contains |%s| but the next word is |%s|." % (word_sofar, word)
-            idx += 1
+            # Optimize whitespace detection: prefer direct char check where possible
+            ch = text[index]
+            wd = word[idx] if idx < word_len else ''
+            if ch.isspace() and not wd.isspace():
+                word_sofar += ch
+            else:
+                word_sofar += ch
+                # The replace() is necessary, so leave as is for functional correctness
+                # Not much to optimize here, as behavior must match exactly.
+                assert ch.replace('\n', ' ') == wd, "Character mismatch: raw text contains |%s| but the next word is |%s|." % (word_sofar, word)
+                idx += 1
         index += 1
     return index, word_sofar
 
