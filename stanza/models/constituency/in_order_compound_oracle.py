@@ -82,25 +82,25 @@ def fix_open_open_error(gold_transition, pred_transition, gold_sequence, gold_in
     if gold_transition == pred_transition:
         return None
 
-    if not isinstance(gold_transition, OpenConstituent):
+    if type(gold_transition) is not OpenConstituent:
         return None
-    if not isinstance(pred_transition, OpenConstituent):
+    if type(pred_transition) is not OpenConstituent:
         return None
 
     block_end = find_in_order_constituent_end(gold_sequence, gold_index+1)
-    if not isinstance(gold_sequence[block_end], Shift):
+    if not type(gold_sequence[block_end]) is Shift:
         # this is a multiple subtrees version of this error
         # we are only skipping the two subtrees errors for now
         return None
 
     next_block_end = find_in_order_constituent_end(gold_sequence, block_end+1)
-    if exactly_three and isinstance(gold_sequence[next_block_end], Shift):
+    if exactly_three and type(gold_sequence[next_block_end]) is Shift:
         # for exactly three subtrees,
         # we can put back the missing open transition
         # and now we have no recall error, only precision error
         # for more than three, we separate that out as an ambiguous choice
         return None
-    elif not exactly_three and isinstance(gold_sequence[next_block_end], CloseConstituent):
+    elif not exactly_three and type(gold_sequence[next_block_end]) is CloseConstituent:
         # this is ambiguous, but we can still try this fix
         return None
 
