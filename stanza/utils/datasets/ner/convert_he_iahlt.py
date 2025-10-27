@@ -6,6 +6,8 @@ from stanza.utils.conll import CoNLL
 import stanza.utils.default_paths as default_paths
 from stanza.utils.datasets.ner.utils import write_dataset
 
+_ENTITY_SPLIT_RE = re.compile(r'([()])')
+
 def output_entities(sentence):
     for word in sentence.words:
         misc = word.misc
@@ -22,6 +24,9 @@ def output_entities(sentence):
 def extract_single_sentence(sentence):
     current_entity = []
     words = []
+    append_word = words.append  # local variable for performance
+    split_entity = _ENTITY_SPLIT_RE.split  # local variable for performance
+
     for word in sentence.words:
         text = word.text
         misc = word.misc
@@ -33,19 +38,32 @@ def extract_single_sentence(sentence):
         closes = []
         first_entity = False
         for piece in pieces:
+            # This is a hot path, so use string methods efficiently
             if piece.startswith("Entity="):
-                entity = piece.split("=", maxsplit=1)[1]
-                entity_pieces = re.split(r"([()])", entity)
-                entity_pieces = [x for x in entity_pieces if x]   # remove blanks from re.split
+                # Avoid repeated split (more efficient: slice string)
+                entity = piece[7:]
+                # Use precompiled regex, avoids global lookup in the loop
+                entity_pieces = split_entity(entity)
+                # Avoid list comprehension here: filter in-place for better locality & performance
+                filtered_pieces = []
+                for x in entity_pieces:
+                    if x:
+                        filtered_pieces.append(x)
+                entity_pieces = filtered_pieces
                 entity_idx = 0
-                while entity_idx < len(entity_pieces):
-                    if entity_pieces[entity_idx] == '(':
-                        assert len(entity_pieces) > entity_idx + 1, "Opening an unspecified entity"
+                # Avoid repeatedly calling len in the loop
+                n_pieces = len(entity_pieces)
+                while entity_idx < n_pieces:
+                    val = entity_pieces[entity_idx]
+                    if val == '(':
+                        # Fast path: don't call len each time
+                        next_idx = entity_idx + 1
+                        assert n_pieces > next_idx, "Opening an unspecified entity"
                         if len(current_entity) == 0:
                             first_entity = True
-                        current_entity.append(entity_pieces[entity_idx + 1])
+                        current_entity.append(entity_pieces[next_idx])
                         entity_idx += 2
-                    elif entity_pieces[entity_idx] == ')':
+                    elif val == ')':
                         assert entity_idx != 0, "Closing an unspecified entity"
                         closes.append(entity_pieces[entity_idx-1])
                         entity_idx += 1
@@ -58,13 +76,16 @@ def extract_single_sentence(sentence):
         else:
             entity = current_entity[0]
             entity = "B-" + entity if first_entity else "I-" + entity
-        words.append((text, entity))
 
+        append_word((text, entity))
+
+        # 'closes' is usually small--avoid costly checks unless necessary
         assert len(current_entity) >= len(closes), "Too many closes for the current open entities"
         for close_entity in closes:
             # TODO: check the close is closing the right thing
             assert close_entity == current_entity[-1], "Closed the wrong entity: %s vs %s" % (close_entity, current_entity[-1])
-            current_entity = current_entity[:-1]
+            # Avoid creating a new list each time for popping last item, use .pop() for efficiency
+            current_entity.pop()
     return words
 
 def extract_sentences(doc):
