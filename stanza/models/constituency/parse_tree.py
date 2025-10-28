@@ -320,17 +320,22 @@ class Tree(StanzaObject):
         There is no attempt to interpret the results of calling these functions.
         Rather, you can use visit_preorder to collect stats on trees, etc.
         """
-        if self.is_leaf():
-            if leaf:
-                leaf(self)
-        elif self.is_preterminal():
-            if preterminal:
-                preterminal(self)
-        else:
-            if internal:
-                internal(self)
-        for child in self.children:
-            child.visit_preorder(internal, preterminal, leaf)
+        # Optimization: Replace recursive call with an iterative explicit stack.
+        stack = [self]
+        while stack:
+            node = stack.pop()
+            if node.is_leaf():
+                if leaf:
+                    leaf(node)
+                continue
+            elif node.is_preterminal():
+                if preterminal:
+                    preterminal(node)
+            else:
+                if internal:
+                    internal(node)
+            # Add children to stack in reverse order to preserve left-to-right traversal order
+            stack.extend(reversed(node.children))
 
     @staticmethod
     def get_unique_constituent_labels(trees):
@@ -407,11 +412,15 @@ class Tree(StanzaObject):
         if isinstance(trees, Tree):
             trees = [trees]
 
-        words = Counter()
+        # Optimization: Accumulate a list of leaf labels directly rather than calling update([x.label]) in a lambda
+        leaf_labels = []
+        def collect_leaf(x):
+            leaf_labels.append(x.label)
         for tree in trees:
-            tree.visit_preorder(leaf = lambda x: words.update([x.label]))
-        threshold = max(int(len(words) * threshold), 1)
-        return sorted(x[0] for x in words.most_common()[:-threshold-1:-1])
+            tree.visit_preorder(leaf=collect_leaf)
+        words = Counter(leaf_labels)
+        threshold_count = max(int(len(words) * threshold), 1)
+        return sorted(x[0] for x in words.most_common()[:-threshold_count-1:-1])
 
     @staticmethod
     def get_root_labels(trees):
