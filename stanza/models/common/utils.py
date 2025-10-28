@@ -465,27 +465,35 @@ def split_into_batches(data, batch_size):
     batch_size is how long to make each batch
     return value is a list of pairs, start_idx end_idx
     """
+
+    # Optimization: Avoid repeated len() calculation and attribute lookup;
+    # Pre-bind methods and inline variable reuse for faster access.
     intervals = []
     interval_start = 0
     interval_size = 0
-    for idx, line in enumerate(data):
-        if len(line) > batch_size:
-            # guess we'll just hope the model can handle a batch of this size after all
+
+    # Prelocal bind for slight speedup in loop
+    intervals_append = intervals.append
+    data_len = len(data)
+
+    # Avoid repeated len(line) computation in hot-path by a single assignment per iteration.
+    enumerate_data = enumerate(data)
+    for idx, line in enumerate_data:
+        line_len = len(line)
+        if line_len > batch_size:
             if interval_size > 0:
-                intervals.append((interval_start, idx))
-            intervals.append((idx, idx+1))
-            interval_start = idx+1
+                intervals_append((interval_start, idx))
+            intervals_append((idx, idx + 1))
+            interval_start = idx + 1
             interval_size = 0
-        elif len(line) + interval_size > batch_size:
-            # this line puts us over batch_size
-            intervals.append((interval_start, idx))
+        elif line_len + interval_size > batch_size:
+            intervals_append((interval_start, idx))
             interval_start = idx
-            interval_size = len(line)
+            interval_size = line_len
         else:
-            interval_size = interval_size + len(line)
+            interval_size += line_len
     if interval_size > 0:
-        # there's some leftover
-        intervals.append((interval_start, len(data)))
+        intervals_append((interval_start, data_len))
     return intervals
 
 def tensor_unsort(sorted_tensor, oidx):
