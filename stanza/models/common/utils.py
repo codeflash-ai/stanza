@@ -170,14 +170,18 @@ def ud_scores(gold_conllu_file, system_conllu_file):
     return evaluation
 
 def harmonic_mean(a, weights=None):
-    if any([x == 0 for x in a]):
-        return 0
+    # Optimize: use generator expressions and avoid intermediate lists
+    # Fast zero-check: short-circuit iteration for zero element
+    for x in a:
+        if x == 0:
+            return 0
+    assert weights is None or len(weights) == len(a), 'Weights has length {} which is different from that of the array ({}).'.format(len(weights), len(a))
+    if weights is None:
+        # Compute sum using a generator expression to avoid creating a temporary list
+        return len(a) / sum(1/x for x in a)
     else:
-        assert weights is None or len(weights) == len(a), 'Weights has length {} which is different from that of the array ({}).'.format(len(weights), len(a))
-        if weights is None:
-            return len(a) / sum([1/x for x in a])
-        else:
-            return sum(weights) / sum(w/x for x, w in zip(a, weights))
+        # Also use generator expression for weighted sum
+        return sum(weights) / sum(w/x for x, w in zip(a, weights))
 
 # torch utils
 def dispatch_optimizer(name, parameters, opt_logger, lr=None, betas=None, eps=None, momentum=None, **extra_args):
