@@ -517,9 +517,17 @@ def set_random_seed(seed):
 
 def find_missing_tags(known_tags, test_tags):
     if isinstance(known_tags, list) and isinstance(known_tags[0], list):
-        known_tags = set(x for y in known_tags for x in y)
+        flattened = []
+        for inner in known_tags:
+            flattened.extend(inner)
+        known_tags = set(flattened)
     if isinstance(test_tags, list) and isinstance(test_tags[0], list):
-        test_tags = sorted(set(x for y in test_tags for x in y))
+        temp_set = set()
+        for inner in test_tags:
+            temp_set.update(inner)
+        test_tags = sorted(temp_set)
+    if not isinstance(known_tags, set):
+        known_tags = set(known_tags)
     missing_tags = sorted(x for x in test_tags if x not in known_tags)
     return missing_tags
 
