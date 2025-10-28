@@ -392,9 +392,21 @@ class Tree(StanzaObject):
         if isinstance(trees, Tree):
             trees = [trees]
 
-        words = Counter()
+        # Optimize: Custom traversal for leaf label collection in one pass
+        def collect_leaf_labels(tree, out):
+            is_leaf = tree.is_leaf()
+            if is_leaf:
+                out.append(tree.label)
+                return
+            children = tree.children
+            for child in children:
+                collect_leaf_labels(child, out)
+
+        # Avoid Counter.update in a large number of calls; gather list then count once
+        word_labels = []
         for tree in trees:
-            tree.visit_preorder(leaf = lambda x: words.update([x.label]))
+            collect_leaf_labels(tree, word_labels)
+        words = Counter(word_labels)
         return sorted(x[0] for x in words.most_common()[:num_words])
 
     @staticmethod
