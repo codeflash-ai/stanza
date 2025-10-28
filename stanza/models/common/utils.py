@@ -414,10 +414,7 @@ def prune_hyp(hyp):
 
 def prune(data_list, lens):
     assert len(data_list) == len(lens)
-    nl = []
-    for d, l in zip(data_list, lens):
-        nl.append(d[:l])
-    return nl
+    return [d[:l] for d, l in zip(data_list, lens)]
 
 def sort(packed, ref, reverse=True):
     """
