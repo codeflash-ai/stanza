@@ -692,35 +692,41 @@ def escape_misc_space(space):
     return escaped_space
 
 def unescape_misc_space(misc_space):
+    # Map escape sequences to their corresponding character and escape length
+    mapping = {
+        '\\s': (' ', 2),
+        '\\t': ('\t', 2),
+        '\\r': ('\r', 2),
+        '\\n': ('\n', 2),
+        '\\p': ('|', 2),
+        '\\\\': ('\\', 2),
+        '\\u00A0': ('\u00A0', 6),
+    }
     spaces = []
     pos = 0
-    while pos < len(misc_space):
-        if misc_space[pos:pos+2] == '\\s':
-            spaces.append(' ')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\t':
-            spaces.append('\t')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\r':
-            spaces.append('\r')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\n':
-            spaces.append('\n')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\p':
-            spaces.append('|')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\\\':
-            spaces.append('\\')
-            pos += 2
-        elif misc_space[pos:pos+6] == '\\u00A0':
-            spaces.append(' ')
-            pos += 6
-        else:
-            spaces.append(misc_space[pos])
-            pos += 1
-    unescaped_space = "".join(spaces)
-    return unescaped_space
+    length = len(misc_space)
+
+    # Precompute boundaries for fast substring matching
+    while pos < length:
+        # Fastest check: look for possible starting escape backslash
+        if misc_space[pos] == '\\':
+            # Try the longest escape first
+            if pos + 6 <= length and misc_space[pos:pos+6] == '\\u00A0':
+                spaces.append('\u00A0')
+                pos += 6
+                continue
+            # All other escapes are length 2
+            if pos + 2 <= length:
+                esc = misc_space[pos:pos+2]
+                mapped = mapping.get(esc)
+                if mapped is not None:
+                    spaces.append(mapped[0])
+                    pos += mapped[1]
+                    continue
+        # Regular character (not an escape)
+        spaces.append(misc_space[pos])
+        pos += 1
+    return "".join(spaces)
 
 def space_before_to_misc(space):
     """
@@ -769,14 +775,20 @@ def misc_to_space_after(misc):
 
     see https://universaldependencies.org/misc.html#spacesafter
 
-    We compensate for some treebanks using SpaceAfter=\n instead of SpacesAfter=\n
+    We compensate for some treebanks using SpaceAfter=
+ instead of SpacesAfter=
+
     On the way back, though, those annotations will be turned into SpacesAfter
     """
     if not misc:
         return " "
-    pieces = misc.split("|")
-    if any(piece.lower() == "spaceafter=no" for piece in pieces):
-        return ""
+    # Use split once, reused as a tuple for fast lookup
+    pieces = tuple(misc.split("|"))
+    # Case-insensitive "spaceafter=no"; avoid generating all .lower() strings unnecessarily
+    for piece in pieces:
+        # Optimize: check by length before .lower() to skip obvious mismatches
+        if len(piece) == 13 and piece.lower() == "spaceafter=no":
+            return ""
     if "SpaceAfter=Yes" in pieces:
         # as of UD 2.11, the Cantonese treebank had this as a misc feature
         return " "
