@@ -692,35 +692,38 @@ def escape_misc_space(space):
     return escaped_space
 
 def unescape_misc_space(misc_space):
+    # Precompute the mappings for quick lookup
+    substr_map = {
+        '\\s': ' ',
+        '\\t': '\t',
+        '\\r': '\r',
+        '\\n': '\n',
+        '\\p': '|',
+        '\\\\': '\\',
+    }
+    substr6_map = {
+        '\\u00A0': ' ',
+    }
+
     spaces = []
+    length = len(misc_space)
     pos = 0
-    while pos < len(misc_space):
-        if misc_space[pos:pos+2] == '\\s':
-            spaces.append(' ')
+    # Avoid repeated indexing and slicing by using a local variable
+    ms = misc_space
+    append = spaces.append  # Localize for slight performance gain
+
+    while pos < length:
+        c2 = ms[pos:pos+2]
+        if c2 in substr_map:
+            append(substr_map[c2])
             pos += 2
-        elif misc_space[pos:pos+2] == '\\t':
-            spaces.append('\t')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\r':
-            spaces.append('\r')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\n':
-            spaces.append('\n')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\p':
-            spaces.append('|')
-            pos += 2
-        elif misc_space[pos:pos+2] == '\\\\':
-            spaces.append('\\')
-            pos += 2
-        elif misc_space[pos:pos+6] == '\\u00A0':
-            spaces.append(' ')
+        elif ms[pos:pos+6] in substr6_map:
+            append(substr6_map[ms[pos:pos+6]])
             pos += 6
         else:
-            spaces.append(misc_space[pos])
+            append(ms[pos])
             pos += 1
-    unescaped_space = "".join(spaces)
-    return unescaped_space
+    return "".join(spaces)
 
 def space_before_to_misc(space):
     """
@@ -756,8 +759,11 @@ def misc_to_space_before(misc):
     if not misc:
         return ""
     pieces = misc.split("|")
+    # For efficiency, avoid per-piece .lower() if possible
+    target = "spacesbefore="
+    target_len = len(target)
     for piece in pieces:
-        if not piece.lower().startswith("spacesbefore="):
+        if piece[:target_len].lower() != target:
             continue
         misc_space = piece.split("=", maxsplit=1)[1]
         return unescape_misc_space(misc_space)
