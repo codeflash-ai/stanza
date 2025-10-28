@@ -775,15 +775,15 @@ def misc_to_space_after(misc):
     if not misc:
         return " "
     pieces = misc.split("|")
-    if any(piece.lower() == "spaceafter=no" for piece in pieces):
-        return ""
-    if "SpaceAfter=Yes" in pieces:
-        # as of UD 2.11, the Cantonese treebank had this as a misc feature
-        return " "
-    if "SpaceAfter=No~" in pieces:
-        # as of UD 2.11, a weird typo in the Russian Taiga dataset
-        return ""
     for piece in pieces:
+        if piece.lower() == "spaceafter=no":
+            return ""
+        if piece == "SpaceAfter=Yes":
+            # as of UD 2.11, the Cantonese treebank had this as a misc feature
+            return " "
+        if piece == "SpaceAfter=No~":
+            # as of UD 2.11, a weird typo in the Russian Taiga dataset
+            return ""
         if piece.startswith("SpaceAfter=") or piece.startswith("SpacesAfter="):
             misc_space = piece.split("=", maxsplit=1)[1]
             return unescape_misc_space(misc_space)
